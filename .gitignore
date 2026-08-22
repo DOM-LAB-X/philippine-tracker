@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+*.log
+.env
+
+# User-specific config (contains credentials)
+config/user_config.json
+
+# PyInstaller output
+*.exe
+*.app
+
+# Runtime data (deal history, etc.)
+data/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
