@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import tkinter as tk
 import webbrowser
 from datetime import datetime, timedelta
@@ -266,7 +267,7 @@ class FlightTrackerApp:
             return
         interval = int(self.settings.get("update_check_interval_hours", 2))
         self._updater = AutoUpdater(owner, repo, check_interval_hours=interval)
-        self._updater.on_update_available = self._on_update_available
+        self._updater.on_update_available = self._on_update_available  # (current, latest)
         self._updater.start()
 
     def _start_price_tracker(self) -> None:
@@ -312,8 +313,7 @@ class FlightTrackerApp:
         if self._root:
             self._root.after(0, lambda: self._apply_new_deals(deals))
 
-    def _on_update_available(self, current: str, latest: str, url: str) -> None:
-        self._pending_update_url = url
+    def _on_update_available(self, current: str, latest: str) -> None:
         if self._root:
             self._root.after(0, lambda: self._show_update_banner(current, latest))
 
@@ -515,14 +515,76 @@ class FlightTrackerApp:
             text_color="white", font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=12, pady=4)
         ctk.CTkButton(
-            banner, text="Download", width=90, height=24,
-            command=lambda: webbrowser.open(self._pending_update_url),
+            banner, text="Update Now", width=100, height=24,
+            command=lambda: self._confirm_and_update(current, latest),
         ).pack(side="right", padx=8, pady=4)
         ctk.CTkButton(
             banner, text="✕", width=28, height=24,
             fg_color="transparent", hover_color="#2a7a3a",
             command=banner.destroy,
         ).pack(side="right", padx=(0, 4), pady=4)
+
+    def _confirm_and_update(self, current: str, latest: str) -> None:
+        confirmed = messagebox.askyesno(
+            "Update PhilFlight Tracker",
+            f"Update from v{current} to v{latest}?\n\n"
+            "The app will download the update and restart automatically.\n"
+            "Your settings and price history will not be affected.",
+            parent=self._root,
+        )
+        if not confirmed:
+            return
+
+        # Show progress dialog
+        self._update_progress_dialog(latest)
+
+    def _update_progress_dialog(self, latest: str) -> None:
+        dlg = ctk.CTkToplevel(self._root)
+        dlg.title("Updating…")
+        dlg.geometry("360x140")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.protocol("WM_DELETE_WINDOW", lambda: None)  # block close during update
+
+        ctk.CTkLabel(
+            dlg, text=f"Installing v{latest}…",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(pady=(20, 8))
+
+        self._update_status_lbl = ctk.CTkLabel(
+            dlg, text="Connecting to GitHub…",
+            font=ctk.CTkFont(size=12), text_color=("gray50", "gray65"),
+        )
+        self._update_status_lbl.pack()
+
+        self._update_bar = ctk.CTkProgressBar(dlg, width=300)
+        self._update_bar.pack(pady=12)
+        self._update_bar.set(0)
+        self._update_bar.configure(mode="indeterminate")
+        self._update_bar.start()
+
+        def _on_progress(msg: str) -> None:
+            if self._root:
+                self._root.after(0, lambda m=msg: self._update_status_lbl.configure(text=m))
+
+        def _run_update() -> None:
+            try:
+                self._updater.download_and_apply(on_progress=_on_progress)
+            except Exception as exc:
+                logger.error("Update failed: %s", exc)
+                if self._root:
+                    self._root.after(0, lambda: self._update_failed(dlg, str(exc)))
+
+        threading.Thread(target=_run_update, daemon=True, name="ApplyUpdate").start()
+
+    def _update_failed(self, dlg, error: str) -> None:
+        dlg.destroy()
+        messagebox.showerror(
+            "Update failed",
+            f"Could not install the update:\n\n{error}\n\n"
+            "Check your internet connection and try again via Help → Check for Updates.",
+            parent=self._root,
+        )
 
     # ------------------------------------------------------------------ #
     # Actions                                                              #
