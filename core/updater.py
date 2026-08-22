@@ -114,7 +114,7 @@ class AutoUpdater:
         with tempfile.TemporaryDirectory() as tmp:
             # ── Download ────────────────────────────────────────────────
             zip_path = Path(tmp) / "update.zip"
-            with requests.get(zip_url, headers=self._headers, stream=True, timeout=DOWNLOAD_TIMEOUT) as resp:
+            with requests.get(zip_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length", 0))
                 downloaded = 0
@@ -185,18 +185,10 @@ class AutoUpdater:
             logger.debug("Update check failed: %s", exc)
 
     def _fetch_remote_version(self) -> str:
-        # Use the GitHub Contents API so the token is sent as a header.
-        # Raw URLs for private repos require auth in the query string, which
-        # is less secure; the Contents API works cleanly with Bearer tokens.
-        url = (
-            f"https://api.github.com/repos/{self._owner}/{self._repo}"
-            f"/contents/version.json"
-        )
-        resp = requests.get(url, headers=self._headers, timeout=CHECK_TIMEOUT)
+        url = GITHUB_RAW.format(owner=self._owner, repo=self._repo)
+        resp = requests.get(url, timeout=CHECK_TIMEOUT)
         resp.raise_for_status()
-        import base64
-        content = base64.b64decode(resp.json()["content"]).decode()
-        return json.loads(content).get("version", "0.0.0")
+        return resp.json().get("version", "0.0.0")
 
     def _is_newer(self, remote: str) -> bool:
         try:
