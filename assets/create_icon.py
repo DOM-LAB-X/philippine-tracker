@@ -98,18 +98,20 @@ def _draw_icon(size: int) -> Image.Image:
 
 
 def generate(dest: Path = HERE) -> None:
+    # PNG — full 512 px master
     large = _draw_icon(512)
     large.save(dest / "icon.png")
 
-    sizes = [16, 24, 32, 48, 64, 128, 256]
-    icons = [_draw_icon(s) for s in sizes]
-    icons[0].save(
+    # ICO — Pillow requires saving from a single image with explicit size list.
+    # We draw at 256 (highest quality) and let the ICO encoder downsample.
+    ico_base = _draw_icon(256).convert("RGBA")
+    ico_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    ico_base.save(
         dest / "icon.ico",
         format="ICO",
-        append_images=icons[1:],
-        sizes=[(s, s) for s in sizes],
+        sizes=ico_sizes,
     )
-    print(f"Icon saved → {dest / 'icon.ico'} and {dest / 'icon.png'}")
+    print(f"Icon saved → {dest / 'icon.ico'} ({len(ico_sizes)} sizes) and {dest / 'icon.png'}")
 
 
 if __name__ == "__main__":

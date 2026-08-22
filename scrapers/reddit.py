@@ -1,17 +1,21 @@
 """
-Reddit deal monitor.
-Uses Reddit's public JSON API — no authentication needed.
-Searches r/Philippines and r/PHtravel for airline promo keywords.
+Reddit deal monitor using RSS feeds.
+Reddit's JSON API now requires OAuth, but RSS feeds are still publicly accessible.
 """
 import logging
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import List
+from email.utils import parsedate_to_datetime
 
 import requests
 
 logger = logging.getLogger(__name__)
 
-HEADERS = {"User-Agent": "PhilFlight-Tracker/1.0 (deal monitor; contact via GitHub)"}
+HEADERS = {
+    "User-Agent": "PhilFlight-Tracker/1.0 (deal monitor)",
+    "Accept": "application/rss+xml, application/xml, text/xml",
+}
 TIMEOUT = 15
 
 SUBREDDITS = ["Philippines", "PHtravel", "phinvest"]
@@ -19,63 +23,91 @@ SUBREDDITS = ["Philippines", "PHtravel", "phinvest"]
 KEYWORDS = [
     "promo fare", "seat sale", "piso fare", "promo code",
     "discount code", "cebu pacific promo", "pal promo",
-    "airasia promo", "airline sale", "travel deal",
+    "airasia promo", "airline sale", "travel deal", "piso",
 ]
+
+# Atom namespace used by Reddit RSS
+ATOM = "{http://www.w3.org/2005/Atom}"
 
 
 def search_deals(hours_back: int = 24) -> List[dict]:
-    """
-    Return Reddit posts from Philippine subreddits that mention airline deals.
-    Posts older than *hours_back* are ignored.
-    """
+    """Return posts from Philippine subreddits that mention airline deals."""
     cutoff = datetime.now(timezone.utc).timestamp() - hours_back * 3600
     found: List[dict] = []
+    seen: set = set()
 
     for sub in SUBREDDITS:
-        found.extend(_search_subreddit(sub, cutoff))
+        for post in _fetch_subreddit_rss(sub, cutoff):
+            if post["url"] not in seen:
+                seen.add(post["url"])
+                found.append(post)
+        import time; time.sleep(2)  # be polite between subreddit requests
 
-    # Deduplicate by URL
-    seen: set = set()
-    unique = []
-    for post in found:
-        if post["url"] not in seen:
-            seen.add(post["url"])
-            unique.append(post)
-
-    return unique
+    return found
 
 
-def _search_subreddit(sub: str, cutoff: float) -> List[dict]:
-    url = f"https://www.reddit.com/r/{sub}/search.json"
+def _fetch_subreddit_rss(sub: str, cutoff: float) -> List[dict]:
+    """Fetch the subreddit's search RSS and filter by keyword + age."""
+    url = f"https://www.reddit.com/r/{sub}/search.rss"
     params = {
-        "q": "airline promo fare sale seat discount",
+        "q": "airline promo fare sale seat discount piso",
         "sort": "new",
-        "restrict_sr": "true",
-        "limit": 25,
-        "t": "day",
+        "restrict_sr": "1",
+        "t": "week",
     }
     try:
         resp = requests.get(url, headers=HEADERS, params=params, timeout=TIMEOUT)
         resp.raise_for_status()
-        posts = resp.json().get("data", {}).get("children", [])
+        return _parse_atom(resp.text, sub, cutoff)
     except Exception as exc:
-        logger.warning("Reddit r/%s fetch failed: %s", sub, exc)
+        logger.warning("Reddit r/%s RSS failed: %s", sub, exc)
         return []
 
+
+def _parse_atom(xml_text: str, sub: str, cutoff: float) -> List[dict]:
     results = []
-    for item in posts:
-        data = item.get("data", {})
-        created = data.get("created_utc", 0)
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        logger.warning("Reddit RSS parse error: %s", exc)
+        return []
+
+    for entry in root.findall(f"{ATOM}entry"):
+        # Title
+        title_el = entry.find(f"{ATOM}title")
+        title = title_el.text.strip() if title_el is not None and title_el.text else ""
+
+        # URL
+        link_el = entry.find(f"{ATOM}link")
+        url = link_el.get("href", "") if link_el is not None else ""
+
+        # Published / updated timestamp
+        updated_el = entry.find(f"{ATOM}updated") or entry.find(f"{ATOM}published")
+        created = 0.0
+        if updated_el is not None and updated_el.text:
+            try:
+                created = datetime.fromisoformat(
+                    updated_el.text.replace("Z", "+00:00")
+                ).timestamp()
+            except ValueError:
+                pass
+
         if created < cutoff:
             continue
-        text = (data.get("title", "") + " " + data.get("selftext", "")).lower()
-        if any(kw in text for kw in KEYWORDS):
+
+        # Content (self-text preview)
+        content_el = entry.find(f"{ATOM}content")
+        content = content_el.text or "" if content_el is not None else ""
+
+        combined = (title + " " + content).lower()
+        if any(kw in combined for kw in KEYWORDS):
             results.append({
                 "source": f"r/{sub}",
-                "title": data.get("title", "")[:300],
-                "url": "https://www.reddit.com" + data.get("permalink", ""),
-                "score": data.get("score", 0),
+                "title": title[:300],
+                "url": url,
+                "score": 0,
                 "created_utc": created,
                 "type": "reddit",
             })
+
     return results
