@@ -120,8 +120,18 @@ class SettingsDialog(ctk.CTkToplevel):
 
         # --- GitHub ---
         self._section(scroll, "GitHub (required for auto-updates)", p, top=14)
-        self._field(scroll, "github_owner", "GitHub username or organisation", p)
+        self._field(scroll, "github_owner", "Owner (username or organisation)", p)
         self._field(scroll, "github_repo",  "Repository name", p)
+        self._field(scroll, "github_token",
+                    "Personal Access Token  (needed for private repos)", p, show="*")
+        ctk.CTkLabel(
+            scroll,
+            text="Create one at: GitHub → Settings → Developer settings → Personal access tokens\n"
+                 "Permissions needed: Contents = Read-only",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray40", "gray60"),
+            justify="left",
+        ).pack(anchor="w", padx=p["padx"], pady=(0, 4))
 
         # --- OpenSky auth ---
         self._section(scroll, "OpenSky credentials  (optional — higher rate limits)", p, top=14)

@@ -265,8 +265,9 @@ class FlightTrackerApp:
         repo  = self.settings.get("github_repo", "")
         if not (owner and repo):
             return
+        token    = self.settings.get("github_token", "")
         interval = int(self.settings.get("update_check_interval_hours", 2))
-        self._updater = AutoUpdater(owner, repo, check_interval_hours=interval)
+        self._updater = AutoUpdater(owner, repo, token=token, check_interval_hours=interval)
         self._updater.on_update_available = self._on_update_available  # (current, latest)
         self._updater.start()
 

@@ -45,7 +45,13 @@ PROTECTED = {
 
 
 class AutoUpdater:
-    def __init__(self, owner: str, repo: str, check_interval_hours: int = 2) -> None:
+    def __init__(
+        self,
+        owner: str,
+        repo: str,
+        token: str = "",
+        check_interval_hours: int = 2,
+    ) -> None:
         self._owner    = owner
         self._repo     = repo
         self._interval = check_interval_hours * 3600
@@ -53,9 +59,17 @@ class AutoUpdater:
         self._thread: Optional[threading.Thread] = None
         self._current  = self._read_local_version()
         self._latest: str = ""
+        self._headers  = self._build_headers(token)
 
         # Fired on the calling thread (always dispatched to main via root.after)
         self.on_update_available: Optional[Callable[[str, str], None]] = None
+
+    @staticmethod
+    def _build_headers(token: str) -> dict:
+        h = {"Accept": "application/vnd.github+json"}
+        if token:
+            h["Authorization"] = f"Bearer {token}"
+        return h
 
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
@@ -100,7 +114,7 @@ class AutoUpdater:
         with tempfile.TemporaryDirectory() as tmp:
             # ── Download ────────────────────────────────────────────────
             zip_path = Path(tmp) / "update.zip"
-            with requests.get(zip_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as resp:
+            with requests.get(zip_url, headers=self._headers, stream=True, timeout=DOWNLOAD_TIMEOUT) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length", 0))
                 downloaded = 0
@@ -171,10 +185,18 @@ class AutoUpdater:
             logger.debug("Update check failed: %s", exc)
 
     def _fetch_remote_version(self) -> str:
-        url  = GITHUB_RAW.format(owner=self._owner, repo=self._repo)
-        resp = requests.get(url, timeout=CHECK_TIMEOUT)
+        # Use the GitHub Contents API so the token is sent as a header.
+        # Raw URLs for private repos require auth in the query string, which
+        # is less secure; the Contents API works cleanly with Bearer tokens.
+        url = (
+            f"https://api.github.com/repos/{self._owner}/{self._repo}"
+            f"/contents/version.json"
+        )
+        resp = requests.get(url, headers=self._headers, timeout=CHECK_TIMEOUT)
         resp.raise_for_status()
-        return resp.json().get("version", "0.0.0")
+        import base64
+        content = base64.b64decode(resp.json()["content"]).decode()
+        return json.loads(content).get("version", "0.0.0")
 
     def _is_newer(self, remote: str) -> bool:
         try:
