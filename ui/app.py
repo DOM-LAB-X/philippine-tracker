@@ -48,6 +48,17 @@ NAV = [
 ]
 
 
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "USD": "$", "PHP": "₱", "EUR": "€", "GBP": "£",
+    "JPY": "¥", "KRW": "₩", "SGD": "S$", "AUD": "A$",
+    "HKD": "HK$", "CAD": "C$", "CNY": "¥",
+}
+
+
+def _currency_symbol(currency: str) -> str:
+    return _CURRENCY_SYMBOLS.get(currency.upper(), currency + " ")
+
+
 def _lbl(parent, text, size=12, weight="normal", color=TEXT, **kw) -> ctk.CTkLabel:
     return ctk.CTkLabel(
         parent, text=text,
@@ -477,9 +488,11 @@ class FlightTrackerApp:
         hdr = ctk.CTkFrame(card, fg_color=CARD_ALT, corner_radius=0)
         hdr.grid(row=0, column=0, sticky="ew")
         _lbl(hdr, label, size=13, weight="bold").pack(side="left", padx=14, pady=10)
-        cheapest = min((o.get("price_php", 999999) for o in offers), default=0)
+        cheapest  = min((o.get("price_php", 999999) for o in offers), default=0)
+        currency  = offers[0].get("currency", "USD") if offers else "USD"
+        sym       = _currency_symbol(currency)
         if cheapest:
-            _lbl(hdr, f"From  ₱{cheapest:,.0f}", size=12, color=GREEN,
+            _lbl(hdr, f"From  {sym}{cheapest:,.0f}", size=12, color=GREEN,
                  weight="bold").pack(side="right", padx=14)
 
         # Flight rows — Google-Flights style
@@ -534,7 +547,7 @@ class FlightTrackerApp:
             # Price
             price = o.get("price_php", 0)
             price_color = GREEN if price == cheapest else TEXT
-            _lbl(row_f, f"₱{price:,.0f}", size=15, weight="bold",
+            _lbl(row_f, f"{sym}{price:,.0f}", size=15, weight="bold",
                  color=price_color).grid(row=0, column=4, padx=14, sticky="e")
 
         ctk.CTkFrame(card, fg_color="transparent", height=6).grid(
@@ -895,7 +908,7 @@ class FlightTrackerApp:
             "Price Drop!",
             f"💸  {info['route']}  ({info.get('date', '')})\n\n"
             f"{info.get('airline', '')} dropped {pct:.0f}%\n"
-            f"Was  ₱{info['old_price']:,.0f}  →  Now  ₱{info['new_price']:,.0f}",
+            f"Was  ${info['old_price']:,.0f}  →  Now  ${info['new_price']:,.0f}",
             parent=self._root,
         )
         webhook = self.settings.get("discord_webhook", "")

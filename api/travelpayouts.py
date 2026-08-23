@@ -79,7 +79,7 @@ class TravelpayoutsClient:
         return_date: str = "",
         adults: int = 1,
         cabin_class: str = "ECONOMY",
-        currency: str = "PHP",
+        currency: str = "USD",
         max_results: int = 15,
         airlines: str = "",
     ) -> list[dict]:
@@ -116,7 +116,7 @@ class TravelpayoutsClient:
         origin: str,
         destination: str,
         month: str,
-        currency: str = "PHP",
+        currency: str = "USD",
     ) -> list[dict]:
         """Cheapest price for each day in a given month (YYYY-MM)."""
         params = {

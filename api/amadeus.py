@@ -141,7 +141,7 @@ class AmadeusClient:
         return_date: str = "",
         adults: int = 1,
         cabin_class: str = "ECONOMY",
-        currency: str = "PHP",
+        currency: str = "USD",
         max_results: int = 10,
         airlines: str = "",
     ) -> list[dict]:

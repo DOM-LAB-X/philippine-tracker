@@ -1,5 +1,5 @@
 {
-  "version": "1.4.7",
+  "version": "1.4.8",
   "release_date": "2026-08-23",
-  "changelog": "SerpApi auto-interval: dynamically scales check frequency based on watched routes to stay within 250/month free tier"
+  "changelog": "Prices now shown in USD. Dynamic currency symbol ($, €, ₱ etc.) based on API response."
 }
