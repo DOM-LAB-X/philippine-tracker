@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import List
 
-import defusedxml.ElementTree as ET
-
+import defusedxml.ElementTree as ET  # noqa: N817 — ET is the universal stdlib alias
 import requests
 
 logger = logging.getLogger(__name__)
