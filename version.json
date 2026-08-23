@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "release_date": "2026-08-23",
-  "changelog": "Midnight purple theme, calendar date picker, dismissible flight cards, simplified settings, Google Flights-inspired layout"
+  "changelog": "Removed Flights tab — app now focuses on price tracking and deals. Fixed Discord webhook layout bug. Calendar date picker. Cleaner settings."
 }

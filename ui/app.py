@@ -1,32 +1,31 @@
 """
-PhilFlight Tracker — UI
-Midnight-purple theme · Google Flights-inspired cards · Calendar date picker
+PhilFlight Tracker — Price & Deal Monitor
+Midnight-purple theme · Calendar date picker · Discord notifications
 """
 import json
 import logging
 import threading
 import tkinter as tk
 import webbrowser
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import messagebox
-from typing import List, Optional, Set
+from typing import List, Optional
 
 import customtkinter as ctk
 
 from config.settings import Settings
 from core.deal_monitor import DealMonitor
 from core.price_tracker import PriceTracker
-from core.tracker import FlightTracker
 from core.updater import AutoUpdater
-from ui.widgets import AirportEntry, DatePicker, fmt_iso_time, fmt_time, iata_to_icao
+from ui.widgets import AirportEntry, DatePicker, fmt_iso_time, iata_to_icao
 
 logger = logging.getLogger(__name__)
 
 ASSETS       = Path(__file__).parent.parent / "assets"
 VERSION_FILE = Path(__file__).parent.parent / "version.json"
 
-# ── Midnight purple palette ──────────────────────────────────────────────────
+# ── Palette ──────────────────────────────────────────────────────────────────
 BG       = "#080812"
 SIDEBAR  = "#0e0c1c"
 CARD     = "#141228"
@@ -40,21 +39,13 @@ SUBTEXT  = "#8b7ec8"
 GREEN    = "#34d399"
 RED      = "#f87171"
 ORANGE   = "#fb923c"
-GOLD     = "#fbbf24"
 
 NAV = [
-    ("✈",  "flights",  "Flights"),
-    ("🎫", "deals",    "Deals"),
-    ("💰", "prices",   "Prices"),
+    ("💰", "prices",   "Price Tracker"),
+    ("🎫", "deals",    "Deals & Promos"),
     ("🔔", "discord",  "Discord"),
     ("⚙",  "settings", "Settings"),
 ]
-
-AIRLINE_COLORS = {
-    "PAL": "#0038A8", "PR": "#0038A8",
-    "CEB": "#1e88e5", "5J": "#1e88e5",
-    "APG": "#e53935", "Z2": "#e53935",
-}
 
 
 def _lbl(parent, text, size=12, weight="normal", color=TEXT, **kw) -> ctk.CTkLabel:
@@ -69,21 +60,31 @@ def _card(parent, **kw) -> ctk.CTkFrame:
     return ctk.CTkFrame(parent, fg_color=CARD, corner_radius=12, **kw)
 
 
+def _sep(parent, row: int, label: str) -> int:
+    """Render a labelled section separator; returns next available row."""
+    ctk.CTkFrame(parent, fg_color="transparent", height=12).grid(
+        row=row, column=0, columnspan=2)
+    f = ctk.CTkFrame(parent, fg_color="transparent")
+    f.grid(row=row + 1, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 2))
+    _lbl(f, label, size=12, weight="bold", color=SUBTEXT).pack(anchor="w")
+    ctk.CTkFrame(parent, fg_color=BORDER, height=1).grid(
+        row=row + 2, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 6))
+    return row + 3
+
+
 class FlightTrackerApp:
     def __init__(self, settings: Settings) -> None:
         self.settings        = settings
-        self._tracker:       Optional[FlightTracker] = None
-        self._updater:       Optional[AutoUpdater]   = None
-        self._deal_monitor:  Optional[DealMonitor]   = None
-        self._price_tracker: Optional[PriceTracker]  = None
-        self._root:          Optional[ctk.CTk]       = None
-        self._sections:      dict                    = {}
-        self._nav_btns:      dict                    = {}
-        self._countdown_job: Optional[str]           = None
-        self._next_update:   Optional[datetime]      = None
-        self._dismissed:     Set[str]                = set()   # hidden callsigns
+        self._updater:       Optional[AutoUpdater]  = None
+        self._deal_monitor:  Optional[DealMonitor]  = None
+        self._price_tracker: Optional[PriceTracker] = None
+        self._root:          Optional[ctk.CTk]      = None
+        self._sections:      dict                   = {}
+        self._nav_btns:      dict                   = {}
+        self._countdown_job: Optional[str]          = None
+        self._next_update:   Optional[datetime]     = None
 
-    # ───────────────────────────────────────────── startup ───────────────────
+    # ───────────────────────────────────── startup ───────────────────────────
 
     def run(self) -> None:
         ctk.set_appearance_mode(self.settings.get("theme", "dark"))
@@ -91,13 +92,13 @@ class FlightTrackerApp:
 
         self._root = ctk.CTk()
         self._root.title("PhilFlight Tracker")
-        self._root.geometry("1280x800")
-        self._root.minsize(900, 580)
+        self._root.geometry("1200x760")
+        self._root.minsize(860, 540)
         self._root.configure(fg_color=BG)
 
         self._set_icon()
         self._build_ui()
-        self._show_section("flights")
+        self._show_section("prices")
         self._start_services()
 
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -115,13 +116,12 @@ class FlightTrackerApp:
                 except Exception:
                     pass
 
-    # ───────────────────────────────────────────── layout ────────────────────
+    # ───────────────────────────────────── layout ────────────────────────────
 
     def _build_ui(self) -> None:
         self._root.grid_columnconfigure(1, weight=1)
         self._root.grid_rowconfigure(1, weight=1)
 
-        # Update banner row (hidden until update available)
         self._notif_area = ctk.CTkFrame(self._root, fg_color="transparent", height=0)
         self._notif_area.grid(row=0, column=0, columnspan=2, sticky="ew")
 
@@ -131,7 +131,6 @@ class FlightTrackerApp:
         main.grid(row=1, column=1, sticky="nsew")
         main.grid_rowconfigure(1, weight=1)
         main.grid_columnconfigure(0, weight=1)
-
         self._build_topbar(main)
 
         content = ctk.CTkFrame(main, fg_color="transparent")
@@ -140,9 +139,8 @@ class FlightTrackerApp:
         content.grid_columnconfigure(0, weight=1)
 
         for key, builder in [
-            ("flights",  self._section_flights),
-            ("deals",    self._section_deals),
             ("prices",   self._section_prices),
+            ("deals",    self._section_deals),
             ("discord",  self._section_discord),
             ("settings", self._section_settings),
         ]:
@@ -188,7 +186,7 @@ class FlightTrackerApp:
         for k, btn in self._nav_btns.items():
             btn.configure(
                 fg_color=PURPLE if k == key else "transparent",
-                text_color=TEXT   if k == key else SUBTEXT,
+                text_color=TEXT  if k == key else SUBTEXT,
             )
 
     # ── Top bar ───────────────────────────────────────────────────────────────
@@ -201,188 +199,153 @@ class FlightTrackerApp:
 
         right = ctk.CTkFrame(bar, fg_color="transparent")
         right.pack(side="right")
-        self._pill_api = _lbl(right, "● Connecting", size=11, color=ORANGE)
-        self._pill_api.pack(side="right", padx=4)
+        self._pill_status = _lbl(right, "● Starting", size=11, color=ORANGE)
+        self._pill_status.pack(side="right", padx=4)
         self._lbl_next = _lbl(right, "", size=11, color=SUBTEXT)
         self._lbl_next.pack(side="right", padx=8)
-        self._lbl_last = _lbl(right, "", size=11, color=SUBTEXT)
-        self._lbl_last.pack(side="right", padx=4)
 
-    # ───────────────────────────── FLIGHTS section ───────────────────────────
+    # ──────────────────────────── PRICES section ─────────────────────────────
 
-    def _section_flights(self, parent) -> None:
+    def _section_prices(self, parent) -> None:
         parent.grid_rowconfigure(1, weight=1)
         parent.grid_columnconfigure(0, weight=1)
 
-        # Search card
-        search = _card(parent)
-        search.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        self._build_search(search)
+        # ── Add route card ────────────────────────────────────────────────────
+        add = _card(parent)
+        add.grid(row=0, column=0, sticky="ew", pady=(0, 14))
 
-        # Results scroll
-        self._flights_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        self._flights_scroll.grid(row=1, column=0, sticky="nsew")
-        self._flights_scroll.grid_columnconfigure(0, weight=1)
+        hdr_row = ctk.CTkFrame(add, fg_color="transparent")
+        hdr_row.pack(fill="x", padx=18, pady=(16, 8))
+        _lbl(hdr_row, "Track a Flight Price", size=15, weight="bold").pack(side="left")
+        _lbl(hdr_row,
+             "Powered by Google Flights / Amadeus  ·  Add API keys in  ⚙  Settings",
+             size=11, color=SUBTEXT).pack(side="right")
 
-        self._flights_empty = _lbl(
-            self._flights_scroll,
-            "No flights found.\nAdjust the filters above and click Search,\nor wait for the automatic refresh.",
+        fields = ctk.CTkFrame(add, fg_color="transparent")
+        fields.pack(fill="x", padx=18, pady=(0, 16))
+
+        _lbl(fields, "From", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_from = AirportEntry(fields, placeholder="e.g. MNL", width=160)
+        self._price_from.pack(side="left", padx=(0, 16))
+
+        _lbl(fields, "To", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_to = AirportEntry(fields, placeholder="e.g. HNL", width=160)
+        self._price_to.pack(side="left", padx=(0, 16))
+
+        _lbl(fields, "Depart", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_dep = DatePicker(fields, placeholder="Pick date", width=148)
+        self._price_dep.pack(side="left", padx=(0, 16))
+
+        _lbl(fields, "Return", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_ret = DatePicker(fields, placeholder="Optional", width=148)
+        self._price_ret.pack(side="left", padx=(0, 16))
+
+        ctk.CTkButton(
+            fields, text="Watch & Check", width=130, height=36,
+            fg_color=PURPLE, hover_color=VIOLET,
+            command=self._add_watched_route,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            fields, text="Refresh All", width=100, height=36,
+            fg_color="transparent", border_width=1, border_color=BORDER,
+            hover_color=CARD_ALT, command=self._manual_price_check,
+        ).pack(side="left")
+
+        # ── Results ───────────────────────────────────────────────────────────
+        self._prices_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self._prices_scroll.grid(row=1, column=0, sticky="nsew")
+        self._prices_scroll.grid_columnconfigure(0, weight=1)
+
+        self._prices_empty = _lbl(
+            self._prices_scroll,
+            "No routes tracked yet.\n\n"
+            "1.  Go to  ⚙  Settings  and add your free Amadeus API keys\n"
+            "    (Sign up at  developers.amadeus.com  — takes 2 minutes)\n\n"
+            "2.  Pick a route above and click  Watch & Check",
             size=13, color=SUBTEXT, justify="center",
         )
-        self._flights_empty.grid(row=0, column=0, pady=80)
+        self._prices_empty.grid(row=0, column=0, pady=80)
 
-    def _build_search(self, parent) -> None:
-        # Row 1: airports + airline + search
-        r1 = ctk.CTkFrame(parent, fg_color="transparent")
-        r1.pack(fill="x", padx=18, pady=(16, 6))
+    # ── Price result card ─────────────────────────────────────────────────────
 
-        _lbl(r1, "From", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._dep_entry = AirportEntry(r1, placeholder="City or IATA code", width=200)
-        self._dep_entry.set(self.settings.get("departure_airport", "MNL"))
-        self._dep_entry.pack(side="left", padx=(0, 18))
-
-        _lbl(r1, "To", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._arr_entry = AirportEntry(r1, placeholder="Any destination", width=200)
-        self._arr_entry.set(self.settings.get("arrival_airport", ""))
-        self._arr_entry.pack(side="left", padx=(0, 18))
-
-        _lbl(r1, "Airline", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._airline_var = tk.StringVar(value=self.settings.get("airline_filter", ""))
-        ctk.CTkEntry(
-            r1, textvariable=self._airline_var,
-            placeholder_text="PAL, CEB… (optional)", width=150,
-        ).pack(side="left", padx=(0, 18))
-
-        ctk.CTkButton(
-            r1, text="Search", width=100, height=34,
-            fg_color=PURPLE, hover_color=VIOLET,
-            command=self._do_search,
-        ).pack(side="left")
-
-        self._count_lbl = _lbl(r1, "", size=11, color=SUBTEXT)
-        self._count_lbl.pack(side="right", padx=8)
-
-        # Row 2: dates + trip type
-        r2 = ctk.CTkFrame(parent, fg_color="transparent")
-        r2.pack(fill="x", padx=18, pady=(0, 16))
-
-        _lbl(r2, "Depart", size=11, color=SUBTEXT).pack(side="left", padx=(0, 6))
-        self._depart_picker = DatePicker(r2, placeholder="Pick departure date", width=155)
-        self._depart_picker.pack(side="left", padx=(0, 20))
-
-        _lbl(r2, "Return", size=11, color=SUBTEXT).pack(side="left", padx=(0, 6))
-        self._return_picker = DatePicker(r2, placeholder="Pick return date (optional)", width=180)
-        self._return_picker.pack(side="left", padx=(0, 20))
-
-        self._trip_var = tk.StringVar(value=self.settings.get("trip_type", "One-way"))
-        ctk.CTkSegmentedButton(
-            r2, values=["One-way", "Round trip"],
-            variable=self._trip_var, width=200, height=30,
-        ).pack(side="left")
-
-        # Reset dismissed flights link
-        self._reset_btn = ctk.CTkButton(
-            r2, text="Show all hidden flights", width=160, height=26,
-            fg_color="transparent", text_color=LAVENDER,
-            hover_color=BORDER,
-            command=self._reset_dismissed,
-        )
-        # only shown when flights have been dismissed
-        self._reset_btn.pack(side="right", padx=8)
-        self._reset_btn.pack_forget()
-
-    # ── Flight card ───────────────────────────────────────────────────────────
-
-    def _render_flights(self, flights: List[dict]) -> None:
-        for w in self._flights_scroll.winfo_children():
-            if w not in (self._flights_empty,):
+    def _render_price_results(self, offers: List[dict]) -> None:
+        self._prices_empty.grid_remove()
+        for w in self._prices_scroll.winfo_children():
+            if w != self._prices_empty:
                 w.destroy()
 
-        visible = [f for f in flights if f.get("callsign", "—") not in self._dismissed]
-
-        if self._dismissed:
-            self._reset_btn.pack(side="right", padx=8)
-        else:
-            self._reset_btn.pack_forget()
-
-        n = len(visible)
-        self._count_lbl.configure(text=f"{n} flight{'s' if n != 1 else ''}")
-
-        if not visible:
-            self._flights_empty.grid()
+        if not offers:
+            self._prices_empty.grid()
             return
-        self._flights_empty.grid_remove()
 
-        for i, f in enumerate(visible):
-            self._add_flight_card(f, row=i)
+        # Group by route + date
+        routes: dict = {}
+        for o in offers:
+            k = f"{o['departure_airport']}  →  {o['arrival_airport']}  ·  {o.get('departure_time','')[:10]}"
+            routes.setdefault(k, []).append(o)
 
-    def _add_flight_card(self, f: dict, row: int) -> None:
-        callsign = (f.get("callsign") or "—").strip()
-        dep_ap   = f.get("departure_airport") or "—"
-        arr_ap   = f.get("arrival_airport")   or "—"
-        dep_t    = fmt_time(f.get("first_seen"))
-        arr_t    = fmt_time(f.get("last_seen"))
-        on_gnd   = f.get("on_ground")
-        prefix   = callsign[:3] if len(callsign) >= 3 else callsign
+        for i, (label, group) in enumerate(routes.items()):
+            self._add_price_card(label, group, i)
 
-        status   = "● Airborne" if on_gnd is False else ("On Ground" if on_gnd is True else "—")
-        s_color  = GREEN        if on_gnd is False else (ORANGE       if on_gnd is True else SUBTEXT)
-        stripe   = AIRLINE_COLORS.get(prefix, PURPLE)
+    def _add_price_card(self, label: str, offers: list, row: int) -> None:
+        card = _card(self._prices_scroll)
+        card.grid(row=row, column=0, sticky="ew", pady=6, padx=2)
+        card.grid_columnconfigure(0, weight=1)
 
-        alt  = f.get("baro_altitude_m")
-        spd  = f.get("velocity_ms")
-        alt_s = f"{int(alt * 3.28084):,} ft" if alt else "—"
-        spd_s = f"{int(spd * 1.944):,} kts"  if spd else "—"
+        # Header
+        hdr = ctk.CTkFrame(card, fg_color=CARD_ALT, corner_radius=0)
+        hdr.grid(row=0, column=0, sticky="ew")
+        _lbl(hdr, label, size=13, weight="bold").pack(side="left", padx=14, pady=10)
+        cheapest = min((o.get("price_php", 999999) for o in offers), default=0)
+        if cheapest:
+            _lbl(hdr, f"From  ₱{cheapest:,.0f}", size=12, color=GREEN,
+                 weight="bold").pack(side="right", padx=14)
 
-        card = ctk.CTkFrame(self._flights_scroll, fg_color=CARD, corner_radius=12)
-        card.grid(row=row, column=0, sticky="ew", pady=5, padx=2)
-        card.grid_columnconfigure(1, weight=1)
+        # Flight rows — Google-Flights style
+        for i, o in enumerate(offers[:8]):
+            bg = CARD_ALT if i % 2 == 0 else CARD
+            row_f = ctk.CTkFrame(card, fg_color=bg, corner_radius=0)
+            row_f.grid(row=i + 1, column=0, sticky="ew", pady=0)
+            row_f.grid_columnconfigure(2, weight=1)
 
-        # Left colour stripe
-        ctk.CTkFrame(card, fg_color=stripe, width=5, corner_radius=0).grid(
-            row=0, column=0, rowspan=2, sticky="ns",
-        )
+            # Airline name
+            airline = o.get("airline_name") or o.get("airline_code", "—")
+            _lbl(row_f, airline, size=12, weight="bold", anchor="w",
+                 width=190).grid(row=0, column=0, padx=14, pady=12, sticky="w")
 
-        # Top row
-        top = ctk.CTkFrame(card, fg_color="transparent")
-        top.grid(row=0, column=1, sticky="ew", padx=14, pady=(14, 4))
-        top.grid_columnconfigure(2, weight=1)
+            # Times
+            dep_t = fmt_iso_time(o.get("departure_time", ""))
+            arr_t = fmt_iso_time(o.get("arrival_time", ""))
+            times_frame = ctk.CTkFrame(row_f, fg_color="transparent")
+            times_frame.grid(row=0, column=1, padx=4, sticky="w")
+            _lbl(times_frame, dep_t, size=14, weight="bold").pack(side="left")
+            _lbl(times_frame, "  ──►  ", size=11, color=BORDER).pack(side="left")
+            _lbl(times_frame, arr_t, size=14, weight="bold").pack(side="left")
 
-        _lbl(top, callsign, size=15, weight="bold").grid(row=0, column=0, sticky="w")
-        _lbl(top, f"  {status}", size=12, color=s_color).grid(row=0, column=1, sticky="w", padx=6)
+            # Stops + duration
+            stops   = o.get("stops", 0)
+            stops_s = "Non-stop" if stops == 0 else f"{stops} stop{'s' if stops > 1 else ''}"
+            dur     = o.get("duration", "").replace("PT", "").replace("H", "h ").replace("M", "m")
+            _lbl(row_f, f"{stops_s}  ·  {dur}", size=11,
+                 color=SUBTEXT).grid(row=0, column=2, padx=4, sticky="w")
 
-        # Dismiss button
-        ctk.CTkButton(
-            top, text="✕", width=24, height=24,
-            fg_color="transparent", hover_color=BORDER,
-            text_color=SUBTEXT,
-            command=lambda cs=callsign: self._dismiss(cs),
-        ).grid(row=0, column=3, sticky="e")
+            # Seats
+            seats = o.get("seats_left")
+            if seats and seats <= 9:
+                _lbl(row_f, f"{seats} seats left", size=11,
+                     color=ORANGE).grid(row=0, column=3, padx=8, sticky="e")
 
-        # Route row — Google-Flights style
-        route = ctk.CTkFrame(card, fg_color="transparent")
-        route.grid(row=1, column=1, sticky="ew", padx=14, pady=(0, 14))
+            # Price
+            price = o.get("price_php", 0)
+            price_color = GREEN if price == cheapest else TEXT
+            _lbl(row_f, f"₱{price:,.0f}", size=15, weight="bold",
+                 color=price_color).grid(row=0, column=4, padx=14, sticky="e")
 
-        _lbl(route, dep_t, size=18, weight="bold").pack(side="left")
-        _lbl(route, "  ──────────►  ", size=12, color=BORDER).pack(side="left")
-        _lbl(route, arr_t, size=18, weight="bold").pack(side="left")
-        _lbl(route, f"    {dep_ap} → {arr_ap}", size=12, color=SUBTEXT).pack(side="left", padx=(12, 0))
+        ctk.CTkFrame(card, fg_color="transparent", height=6).grid(
+            row=len(offers[:8]) + 1, column=0)
 
-        if alt or spd:
-            sep = ctk.CTkFrame(route, fg_color=BORDER, width=1, height=16)
-            sep.pack(side="left", padx=16)
-            _lbl(route, alt_s, size=11, color=SUBTEXT).pack(side="left")
-            _lbl(route, f"  ·  {spd_s}", size=11, color=SUBTEXT).pack(side="left")
-
-    def _dismiss(self, callsign: str) -> None:
-        self._dismissed.add(callsign)
-        self._render_flights(self._last_flights)
-
-    def _reset_dismissed(self) -> None:
-        self._dismissed.clear()
-        self._render_flights(self._last_flights)
-
-    # ───────────────────────────── DEALS section ─────────────────────────────
+    # ──────────────────────────── DEALS section ──────────────────────────────
 
     def _section_deals(self, parent) -> None:
         parent.grid_rowconfigure(1, weight=1)
@@ -396,7 +359,7 @@ class FlightTrackerApp:
             fg_color=PURPLE, hover_color=VIOLET,
             command=self._manual_deal_check,
         ).pack(side="right")
-        _lbl(hdr, "Scans Reddit & airline promo pages every hour",
+        _lbl(hdr, "Auto-scans Reddit + airline promo pages every hour",
              size=11, color=SUBTEXT).pack(side="right", padx=12)
 
         self._deals_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
@@ -405,153 +368,103 @@ class FlightTrackerApp:
 
         self._deals_empty = _lbl(
             self._deals_scroll,
-            "No deals found yet.\nClick 'Scan Now' or wait for the next automatic scan.",
+            "No deals found yet.\nClick Scan Now or wait for the next automatic scan (every hour).",
             size=13, color=SUBTEXT, justify="center",
         )
         self._deals_empty.grid(row=0, column=0, pady=80)
 
-    # ───────────────────────────── PRICES section ────────────────────────────
-
-    def _section_prices(self, parent) -> None:
-        parent.grid_rowconfigure(1, weight=1)
-        parent.grid_columnconfigure(0, weight=1)
-
-        add = _card(parent)
-        add.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-
-        hdr = ctk.CTkFrame(add, fg_color="transparent")
-        hdr.pack(fill="x", padx=18, pady=(14, 6))
-        _lbl(hdr, "Track a Price Route", size=14, weight="bold").pack(side="left")
-        _lbl(hdr, "via Google Flights / Amadeus  ·  Add API keys in ⚙ Settings to activate",
-             size=11, color=SUBTEXT).pack(side="right")
-
-        fields = ctk.CTkFrame(add, fg_color="transparent")
-        fields.pack(fill="x", padx=18, pady=(0, 14))
-
-        _lbl(fields, "From", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_from = AirportEntry(fields, placeholder="MNL", width=155)
-        self._price_from.pack(side="left", padx=(0, 16))
-
-        _lbl(fields, "To", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_to = AirportEntry(fields, placeholder="CEB", width=155)
-        self._price_to.pack(side="left", padx=(0, 16))
-
-        _lbl(fields, "Depart", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_dep_picker = DatePicker(fields, placeholder="Pick date", width=145)
-        self._price_dep_picker.pack(side="left", padx=(0, 16))
-
-        _lbl(fields, "Return", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_ret_picker = DatePicker(fields, placeholder="Optional", width=145)
-        self._price_ret_picker.pack(side="left", padx=(0, 16))
-
-        ctk.CTkButton(
-            fields, text="Watch Route", width=115, height=34,
-            fg_color=PURPLE, hover_color=VIOLET,
-            command=self._add_watched_route,
-        ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkButton(
-            fields, text="Check Now", width=100, height=34,
-            fg_color="transparent", border_width=1, border_color=BORDER,
-            hover_color=CARD_ALT,
-            command=self._manual_price_check,
-        ).pack(side="left")
-
-        self._prices_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        self._prices_scroll.grid(row=1, column=0, sticky="nsew")
-        self._prices_scroll.grid_columnconfigure(0, weight=1)
-
-        self._prices_empty = _lbl(
-            self._prices_scroll,
-            "No prices tracked yet.\n\n"
-            "1.  Add Amadeus API keys in  ⚙  Settings  (free at developers.amadeus.com)\n"
-            "2.  Pick a route and dates above, then click  Watch Route",
-            size=13, color=SUBTEXT, justify="center",
-        )
-        self._prices_empty.grid(row=0, column=0, pady=80)
-
-    # ───────────────────────────── DISCORD section ───────────────────────────
+    # ──────────────────────────── DISCORD section ────────────────────────────
 
     def _section_discord(self, parent) -> None:
         parent.grid_rowconfigure(0, weight=1)
         parent.grid_columnconfigure(0, weight=1)
 
-        center = ctk.CTkFrame(parent, fg_color="transparent")
-        center.place(relx=0.5, rely=0.5, anchor="center")
+        # Scrollable so it's always reachable regardless of window height
+        outer = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        outer.grid(row=0, column=0, sticky="nsew")
+        outer.grid_columnconfigure(0, weight=1)
 
-        card = _card(center, width=580)
-        card.pack()
-        card.pack_propagate(False)
+        # Card — no fixed size, sizes itself from content
+        card = ctk.CTkFrame(outer, fg_color=CARD, corner_radius=14)
+        card.grid(row=0, column=0, sticky="ew", pady=30, padx=60)
+        card.grid_columnconfigure(0, weight=1)
 
-        # Discord purple header
-        hdr = ctk.CTkFrame(card, fg_color="#5865F2", corner_radius=0, height=68)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
+        # Discord-purple header bar
+        hdr = ctk.CTkFrame(card, fg_color="#5865F2", corner_radius=0, height=64)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_propagate(False)
         _lbl(hdr, "🔔  Connect Discord", size=16, weight="bold",
              color="white").place(relx=0.5, rely=0.5, anchor="center")
 
         body = ctk.CTkFrame(card, fg_color="transparent")
-        body.pack(fill="x", padx=24, pady=20)
+        body.grid(row=1, column=0, sticky="ew", padx=28, pady=20)
+        body.grid_columnconfigure(0, weight=1)
 
-        _lbl(body,
-             "Receive alerts in Discord when:\n"
-             "  •  New flights match your search\n"
-             "  •  A promo or deal is posted\n"
-             "  •  A flight price drops",
-             size=12, color=TEXT, justify="left").pack(anchor="w", pady=(0, 18))
+        # What you get
+        _lbl(
+            body,
+            "Get notified in Discord when:\n"
+            "  •  A promo or deal is posted\n"
+            "  •  A flight price drops below your threshold",
+            size=12, color=TEXT, justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 18))
 
-        # Steps
+        # Step-by-step
         steps = ctk.CTkFrame(body, fg_color=CARD_ALT, corner_radius=8)
-        steps.pack(fill="x", pady=(0, 16))
+        steps.grid(row=1, column=0, sticky="ew", pady=(0, 18))
+        steps.grid_columnconfigure(0, weight=1)
         _lbl(steps, "How to get your webhook URL",
-             size=12, weight="bold", color=SUBTEXT).pack(anchor="w", padx=12, pady=(10, 4))
+             size=12, weight="bold", color=SUBTEXT).grid(
+                 row=0, column=0, sticky="w", padx=14, pady=(12, 4))
         for i, step in enumerate([
             "Open Discord  →  your server  →  Server Settings",
             "Go to  Integrations  →  Webhooks  →  New Webhook",
-            "Choose a channel, give it a name, copy the URL",
-            "Paste it below and click Save",
+            "Choose a channel, give it a name, then copy the URL",
+            "Paste it in the field below and click Save",
         ], 1):
-            _lbl(steps, f"  {i}.  {step}", size=11, color=SUBTEXT).pack(anchor="w", padx=12, pady=1)
-        ctk.CTkFrame(steps, fg_color="transparent", height=8).pack()
+            _lbl(steps, f"  {i}.  {step}", size=11, color=SUBTEXT).grid(
+                row=i, column=0, sticky="w", padx=14, pady=1)
+        ctk.CTkFrame(steps, fg_color="transparent", height=10).grid(
+            row=5, column=0)
 
-        _lbl(body, "Webhook URL", size=12, color=SUBTEXT).pack(anchor="w")
-        self._discord_url_var = tk.StringVar(value=self.settings.get("discord_webhook", ""))
+        # Webhook URL input
+        _lbl(body, "Webhook URL", size=12, color=SUBTEXT).grid(
+            row=2, column=0, sticky="w", pady=(0, 4))
+        self._discord_var = tk.StringVar(value=self.settings.get("discord_webhook", ""))
         ctk.CTkEntry(
-            body, textvariable=self._discord_url_var,
+            body, textvariable=self._discord_var,
             placeholder_text="https://discord.com/api/webhooks/…",
-            width=530,
-        ).pack(anchor="w", pady=(4, 14))
+            height=38,
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 16))
 
-        # Toggles
+        # Notification toggles
         tog = ctk.CTkFrame(body, fg_color="transparent")
-        tog.pack(anchor="w", pady=(0, 16))
-        self._tog_flights = tk.BooleanVar(value=self.settings.get("discord_notify_flights", True))
-        self._tog_deals   = tk.BooleanVar(value=self.settings.get("discord_notify_deals", True))
-        self._tog_prices  = tk.BooleanVar(value=self.settings.get("discord_notify_price_drops", True))
-        for var, label in [
-            (self._tog_flights, "Flight updates"),
-            (self._tog_deals,   "New deals"),
-            (self._tog_prices,  "Price drops"),
-        ]:
-            ctk.CTkCheckBox(tog, text=label, variable=var,
-                            font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 20))
+        tog.grid(row=4, column=0, sticky="w", pady=(0, 16))
+        self._tog_deals  = tk.BooleanVar(value=self.settings.get("discord_notify_deals", True))
+        self._tog_prices = tk.BooleanVar(value=self.settings.get("discord_notify_price_drops", True))
+        ctk.CTkCheckBox(tog, text="New deals & promos",
+                        variable=self._tog_deals,
+                        font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 24))
+        ctk.CTkCheckBox(tog, text="Price drops",
+                        variable=self._tog_prices,
+                        font=ctk.CTkFont(size=12)).pack(side="left")
 
+        # Action buttons
         btns = ctk.CTkFrame(body, fg_color="transparent")
-        btns.pack(anchor="w")
+        btns.grid(row=5, column=0, sticky="w", pady=(0, 8))
         ctk.CTkButton(
-            btns, text="Test Connection", width=140, height=36,
+            btns, text="Test Connection", width=150, height=38,
             fg_color="transparent", border_width=1, border_color=BORDER,
             hover_color=CARD_ALT, command=self._test_discord,
-        ).pack(side="left", padx=(0, 8))
+        ).pack(side="left", padx=(0, 10))
         ctk.CTkButton(
-            btns, text="Save", width=90, height=36,
-            fg_color=PURPLE, hover_color=VIOLET,
-            command=self._save_discord,
+            btns, text="Save", width=100, height=38,
+            fg_color=PURPLE, hover_color=VIOLET, command=self._save_discord,
         ).pack(side="left")
-        self._discord_status = _lbl(btns, "", size=11, color=GREEN)
-        self._discord_status.pack(side="left", padx=12)
+        self._discord_status = _lbl(btns, "", size=12, color=GREEN)
+        self._discord_status.pack(side="left", padx=14)
 
-    # ───────────────────────────── SETTINGS section ──────────────────────────
+    # ──────────────────────────── SETTINGS section ───────────────────────────
 
     def _section_settings(self, parent) -> None:
         parent.grid_rowconfigure(0, weight=1)
@@ -562,33 +475,26 @@ class FlightTrackerApp:
         scroll.grid_columnconfigure(0, weight=1)
         scroll.grid_columnconfigure(1, weight=1)
 
-        def sep(label, row):
-            f = ctk.CTkFrame(scroll, fg_color="transparent")
-            f.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(20, 4), padx=4)
-            _lbl(f, label, size=13, weight="bold", color=SUBTEXT).pack(anchor="w")
-            ctk.CTkFrame(scroll, fg_color=BORDER, height=1).grid(
-                row=row + 1, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 8))
-            return row + 2
+        self._sf: dict[str, tk.StringVar] = {}
 
-        def field(label, key, row, col=0, show=""):
+        def field(label: str, key: str, grid_row: int, col: int = 0, show: str = "") -> None:
             wrap = ctk.CTkFrame(scroll, fg_color="transparent")
-            wrap.grid(row=row, column=col, sticky="ew", padx=(4 + col * 8, 4), pady=3)
+            wrap.grid(row=grid_row, column=col, sticky="ew", padx=(4 + col * 8, 4), pady=4)
             _lbl(wrap, label, size=11, color=SUBTEXT).pack(anchor="w")
             var = tk.StringVar(value=str(self.settings.get(key, "")))
             ctk.CTkEntry(wrap, textvariable=var, show=show).pack(fill="x")
             self._sf[key] = var
 
-        self._sf: dict[str, tk.StringVar] = {}
         r = 0
 
-        r = sep("Polling", r)
-        field("Flight check interval (minutes)", "poll_interval_minutes", r, 0)
-        field("Deal scan interval (minutes)",    "deal_check_interval_minutes", r, 1)
+        r = _sep(scroll, r, "Polling intervals")
+        field("Flight price check every (minutes)", "price_check_interval_minutes", r, 0)
+        field("Deal scan every (minutes)",           "deal_check_interval_minutes",  r, 1)
         r += 1
 
-        r = sep("Appearance", r)
+        r = _sep(scroll, r, "Appearance")
         wrap = ctk.CTkFrame(scroll, fg_color="transparent")
-        wrap.grid(row=r, column=0, columnspan=2, sticky="w", padx=4, pady=3)
+        wrap.grid(row=r, column=0, columnspan=2, sticky="w", padx=4, pady=4)
         _lbl(wrap, "Theme", size=11, color=SUBTEXT).pack(anchor="w")
         self._theme_var = tk.StringVar(value=self.settings.get("theme", "dark"))
         ctk.CTkSegmentedButton(
@@ -597,86 +503,80 @@ class FlightTrackerApp:
         ).pack(anchor="w")
         r += 1
 
-        r = sep("Google Flights / Amadeus  (free at developers.amadeus.com)", r)
+        r = _sep(scroll, r, "Google Flights prices  (Amadeus API — free at developers.amadeus.com)")
         field("Client ID",     "amadeus_client_id",     r, 0)
         field("Client Secret", "amadeus_client_secret", r, 1, show="*")
         r += 1
         env_wrap = ctk.CTkFrame(scroll, fg_color="transparent")
-        env_wrap.grid(row=r, column=0, sticky="ew", padx=4, pady=3)
+        env_wrap.grid(row=r, column=0, sticky="ew", padx=4, pady=4)
         _lbl(env_wrap, "Environment", size=11, color=SUBTEXT).pack(anchor="w")
-        self._amadeus_env = tk.StringVar(value=self.settings.get("amadeus_environment", "test"))
+        self._amadeus_env = tk.StringVar(
+            value=self.settings.get("amadeus_environment", "test"))
         ctk.CTkSegmentedButton(
             env_wrap, values=["test", "production"],
             variable=self._amadeus_env, width=200,
         ).pack(anchor="w")
         r += 1
 
-        r = sep("Auto-update (GitHub)", r)
-        field("GitHub owner", "github_owner", r, 0)
-        field("Repository",   "github_repo",  r, 1)
+        r = _sep(scroll, r, "Auto-update (GitHub)")
+        field("Organization / owner", "github_owner", r, 0)
+        field("Repository name",      "github_repo",  r, 1)
         r += 1
 
+        # Save button
+        ctk.CTkFrame(scroll, fg_color="transparent", height=16).grid(row=r, column=0, columnspan=2)
+        r += 1
         btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
-        btn_row.grid(row=r, column=0, columnspan=2, sticky="w", padx=4, pady=(20, 8))
+        btn_row.grid(row=r, column=0, columnspan=2, sticky="w", padx=4)
         ctk.CTkButton(
-            btn_row, text="Save Settings", width=140, height=36,
-            fg_color=PURPLE, hover_color=VIOLET,
-            command=self._save_settings,
+            btn_row, text="Save Settings", width=140, height=38,
+            fg_color=PURPLE, hover_color=VIOLET, command=self._save_settings,
         ).pack(side="left")
         self._settings_status = _lbl(btn_row, "", size=11, color=GREEN)
-        self._settings_status.pack(side="left", padx=12)
+        self._settings_status.pack(side="left", padx=14)
 
-    # ───────────────────────── Background services ───────────────────────────
+    # ────────────────────────── Background services ───────────────────────────
 
     def _start_services(self) -> None:
-        from api.opensky import OpenSkyClient
-        client = OpenSkyClient(
-            username=self.settings.get("opensky_username", ""),
-            password=self.settings.get("opensky_password", ""),
-        )
-        self._tracker = FlightTracker(client, self.settings)
-        self._tracker.on_update = self._on_flights
-        self._tracker.on_error  = self._on_tracker_error
-        self._tracker.start()
-
+        # Auto-updater
         owner = self.settings.get("github_owner", "")
         repo  = self.settings.get("github_repo", "")
         if owner and repo:
             self._updater = AutoUpdater(
                 owner, repo,
-                check_interval_hours=int(self.settings.get("update_check_interval_hours", 2)),
+                check_interval_hours=int(
+                    self.settings.get("update_check_interval_hours", 2)),
             )
             self._updater.on_update_available = self._on_update_available
             self._updater.start()
 
-        interval = int(self.settings.get("deal_check_interval_minutes", 60))
-        self._deal_monitor = DealMonitor(check_interval_minutes=interval)
+        # Deal scanner
+        self._deal_monitor = DealMonitor(
+            check_interval_minutes=int(
+                self.settings.get("deal_check_interval_minutes", 60)),
+        )
         self._deal_monitor.on_new_deals = self._on_deals
         self._deal_monitor.start()
 
+        # Price tracker
         from api.amadeus import AmadeusClient
         amadeus = AmadeusClient(
             client_id=self.settings.get("amadeus_client_id", ""),
             client_secret=self.settings.get("amadeus_client_secret", ""),
             production=self.settings.get("amadeus_environment", "test") == "production",
         )
-        pi = int(self.settings.get("price_check_interval_minutes", 60))
-        self._price_tracker = PriceTracker(amadeus, self.settings, pi)
+        self._price_tracker = PriceTracker(
+            amadeus, self.settings,
+            check_interval_minutes=int(
+                self.settings.get("price_check_interval_minutes", 60)),
+        )
         self._price_tracker.on_prices_updated = self._on_prices
         self._price_tracker.on_price_drop      = self._on_price_drop
         self._price_tracker.start()
 
-    # ───────────────────────── Callbacks (background → main) ─────────────────
+        self._pill_status.configure(text="● Ready", text_color=GREEN)
 
-    def _on_flights(self, flights: List[dict], ts: datetime) -> None:
-        self._last_flights = flights
-        if self._root:
-            self._root.after(0, lambda: self._apply_flights(flights, ts))
-
-    def _on_tracker_error(self, msg: str) -> None:
-        if self._root:
-            self._root.after(0, lambda: self._pill_api.configure(
-                text="● Error", text_color=RED))
+    # ──────────────────────── Callbacks (background → main) ──────────────────
 
     def _on_deals(self, deals: List[dict]) -> None:
         if self._root:
@@ -684,7 +584,7 @@ class FlightTrackerApp:
 
     def _on_prices(self, offers: List[dict]) -> None:
         if self._root:
-            self._root.after(0, lambda: self._apply_prices(offers))
+            self._root.after(0, lambda: self._render_price_results(offers))
 
     def _on_price_drop(self, info: dict) -> None:
         if self._root:
@@ -694,43 +594,17 @@ class FlightTrackerApp:
         if self._root:
             self._root.after(0, lambda: self._show_update_banner(current, latest))
 
-    # ───────────────────────── Main-thread UI updates ────────────────────────
-
-    def _apply_flights(self, flights: List[dict], ts: datetime) -> None:
-        self._pill_api.configure(text="● Live", text_color=GREEN)
-        self._lbl_last.configure(text=f"Updated {fmt_time(ts.timestamp())}")
-        secs = self.settings.get("poll_interval_minutes", 30) * 60
-        self._next_update = ts + timedelta(seconds=secs)
-        self._tick()
-        self._render_flights(flights)
-
-        webhook = self.settings.get("discord_webhook", "")
-        if webhook and self.settings.get("discord_notify_flights", True) and flights:
-            from notifications.discord import notify_flight_update
-            dep = self.settings.get("departure_airport", "")
-            arr = self.settings.get("arrival_airport", "")
-            threading.Thread(
-                target=notify_flight_update, args=(webhook, flights, dep, arr), daemon=True
-            ).start()
-
-    def _tick(self) -> None:
-        if self._countdown_job:
-            self._root.after_cancel(self._countdown_job)
-        if not self._next_update:
-            return
-        secs = max(0, int((self._next_update - datetime.now()).total_seconds()))
-        m, s = divmod(secs, 60)
-        self._lbl_next.configure(text=f"Next refresh {m:02d}:{s:02d}")
-        if secs > 0:
-            self._countdown_job = self._root.after(1000, self._tick)
+    # ──────────────────────── Main-thread UI updates ──────────────────────────
 
     def _apply_deals(self, deals: List[dict]) -> None:
         min_s = int(self.settings.get("min_reddit_score", 5))
-        new = [d for d in deals if d.get("type") != "reddit" or d.get("score", 0) >= min_s]
+        new   = [d for d in deals
+                 if d.get("type") != "reddit" or d.get("score", 0) >= min_s]
         if not new:
             return
         self._deals_empty.grid_remove()
-        existing = [w for w in self._deals_scroll.winfo_children() if w != self._deals_empty]
+        existing = [w for w in self._deals_scroll.winfo_children()
+                    if w != self._deals_empty]
         for i, deal in enumerate(new):
             self._add_deal_card(deal, len(existing) + i)
         self._show_section("deals")
@@ -739,7 +613,9 @@ class FlightTrackerApp:
         if webhook and self.settings.get("discord_notify_deals", True):
             from notifications.discord import notify_deal
             for d in new:
-                threading.Thread(target=notify_deal, args=(webhook, d), daemon=True).start()
+                threading.Thread(
+                    target=notify_deal, args=(webhook, d), daemon=True,
+                ).start()
 
     def _add_deal_card(self, deal: dict, row: int) -> None:
         src   = deal.get("source", "")
@@ -753,7 +629,6 @@ class FlightTrackerApp:
 
         hdr = ctk.CTkFrame(card, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 4))
-
         badge_c = {"Philippine Airlines": "#0038A8", "Cebu Pacific": "#1e88e5",
                    "AirAsia PH": "#e53935"}.get(src, "#4a4e69")
         ctk.CTkLabel(
@@ -764,8 +639,8 @@ class FlightTrackerApp:
         if score:
             _lbl(hdr, f"🔼 {score}", size=11, color=SUBTEXT).pack(side="right")
 
-        _lbl(card, title, size=12, color=TEXT, wraplength=860,
-             justify="left", anchor="w").grid(
+        _lbl(card, title, size=12, color=TEXT,
+             wraplength=820, justify="left", anchor="w").grid(
                  row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
         if url:
             ctk.CTkButton(
@@ -774,47 +649,6 @@ class FlightTrackerApp:
                 command=lambda u=url: webbrowser.open(u),
             ).grid(row=2, column=0, sticky="e", padx=14, pady=(0, 10))
 
-    def _apply_prices(self, offers: List[dict]) -> None:
-        self._prices_empty.grid_remove()
-        for w in self._prices_scroll.winfo_children():
-            if w != self._prices_empty:
-                w.destroy()
-        routes: dict = {}
-        for o in offers:
-            k = f"{o['departure_airport']} → {o['arrival_airport']}  ·  {o.get('departure_time','')[:10]}"
-            routes.setdefault(k, []).append(o)
-        for i, (label, ro) in enumerate(routes.items()):
-            self._add_price_section(label, ro, i)
-
-    def _add_price_section(self, label: str, offers: list, row: int) -> None:
-        card = _card(self._prices_scroll)
-        card.grid(row=row, column=0, sticky="ew", pady=6, padx=2)
-        card.grid_columnconfigure(0, weight=1)
-        _lbl(card, label, size=13, weight="bold").grid(
-            row=0, column=0, sticky="w", padx=14, pady=(12, 6))
-        for i, o in enumerate(offers[:8]):
-            r = ctk.CTkFrame(card, fg_color=CARD_ALT if i % 2 else CARD, corner_radius=6)
-            r.grid(row=i + 1, column=0, sticky="ew", padx=10, pady=2)
-            r.grid_columnconfigure(1, weight=1)
-            airline = o.get("airline_name") or o.get("airline_code", "—")
-            stops   = o.get("stops", 0)
-            stops_s = "Non-stop" if stops == 0 else f"{stops} stop{'s' if stops > 1 else ''}"
-            dur     = o.get("duration", "").replace("PT", "").replace("H", "h ").replace("M", "m")
-            dep_t   = fmt_iso_time(o.get("departure_time", ""))
-            seats   = o.get("seats_left")
-            _lbl(r, airline, size=12, weight="bold", anchor="w").grid(
-                row=0, column=0, sticky="w", padx=12, pady=8)
-            _lbl(r, f"{dep_t}  ·  {stops_s}  ·  {dur}", size=11, color=SUBTEXT).grid(
-                row=0, column=1, sticky="w", padx=4)
-            if seats:
-                _lbl(r, f"{seats} seats", size=11, color=ORANGE).grid(
-                    row=0, column=2, sticky="e", padx=12)
-            _lbl(r, f"₱{o.get('price_php', 0):,.0f}",
-                 size=14, weight="bold", color=GREEN).grid(
-                     row=0, column=3, sticky="e", padx=16)
-        ctk.CTkFrame(card, fg_color="transparent", height=6).grid(
-            row=len(offers[:8]) + 1, column=0)
-
     def _handle_price_drop(self, info: dict) -> None:
         pct = (info["old_price"] - info["new_price"]) / info["old_price"] * 100
         self._show_section("prices")
@@ -822,7 +656,7 @@ class FlightTrackerApp:
             "Price Drop!",
             f"💸  {info['route']}  ({info.get('date', '')})\n\n"
             f"{info.get('airline', '')} dropped {pct:.0f}%\n"
-            f"Was ₱{info['old_price']:,.0f}  →  Now ₱{info['new_price']:,.0f}",
+            f"Was  ₱{info['old_price']:,.0f}  →  Now  ₱{info['new_price']:,.0f}",
             parent=self._root,
         )
         webhook = self.settings.get("discord_webhook", "")
@@ -831,23 +665,25 @@ class FlightTrackerApp:
             threading.Thread(
                 target=notify_price_drop,
                 args=(webhook, info["route"], info["old_price"],
-                      info["new_price"], info.get("airline", ""), info.get("url", "")),
+                      info["new_price"], info.get("airline", ""),
+                      info.get("url", "")),
                 daemon=True,
             ).start()
 
-    # ── Update banner ─────────────────────────────────────────────────────────
+    # ── Update banner ──────────────────────────────────────────────────────────
 
     def _show_update_banner(self, current: str, latest: str) -> None:
         for w in self._notif_area.winfo_children():
             w.destroy()
-        banner = ctk.CTkFrame(self._notif_area, fg_color="#1a2e1a", height=36, corner_radius=0)
+        banner = ctk.CTkFrame(
+            self._notif_area, fg_color="#1a2e1a", height=36, corner_radius=0)
         banner.pack(fill="x")
         banner.pack_propagate(False)
-        _lbl(banner, f"  Update available: v{current}  →  v{latest}",
+        _lbl(banner, f"  Update available:  v{current}  →  v{latest}",
              size=12, color="#86efac").pack(side="left", padx=12, pady=4)
         ctk.CTkButton(
             banner, text="Update Now", width=100, height=24,
-            fg_color=GREEN, hover_color="#059669", text_color="#0a0a0f",
+            fg_color=GREEN, hover_color="#059669", text_color=BG,
             command=lambda: self._confirm_update(current, latest),
         ).pack(side="right", padx=8, pady=4)
         ctk.CTkButton(
@@ -860,7 +696,7 @@ class FlightTrackerApp:
         if not messagebox.askyesno(
             "Install Update",
             f"Update from v{current} to v{latest}?\n\n"
-            "The app will download and restart automatically.\n"
+            "The app will download the update and restart automatically.\n"
             "Your settings and data will not be affected.",
             parent=self._root,
         ):
@@ -883,7 +719,7 @@ class FlightTrackerApp:
             try:
                 self._updater.download_and_apply(
                     on_progress=lambda m: self._root.after(
-                        0, lambda msg=m: self._upd_lbl.configure(text=msg)
+                        0, lambda msg=m: self._upd_lbl.configure(text=msg),
                     )
                 )
             except Exception as err:
@@ -895,35 +731,25 @@ class FlightTrackerApp:
 
         threading.Thread(target=_run, daemon=True).start()
 
-    # ── Actions ───────────────────────────────────────────────────────────────
-
-    def _do_search(self) -> None:
-        dep     = self._dep_entry.get()
-        arr     = self._arr_entry.get()
-        airline = self._airline_var.get().strip().upper()
-        dep_icao = iata_to_icao(dep) if len(dep) == 3 else dep
-        arr_icao = iata_to_icao(arr) if len(arr) == 3 else arr
-        self.settings.set("departure_airport", dep_icao)
-        self.settings.set("arrival_airport",   arr_icao)
-        self.settings.set("airline_filter",    airline)
-        self.settings.set("depart_date",       self._depart_picker.get())
-        self.settings.set("return_date",       self._return_picker.get())
-        self.settings.set("trip_type",         self._trip_var.get())
-        if self._tracker:
-            self._tracker.trigger_refresh()
+    # ── User actions ──────────────────────────────────────────────────────────
 
     def _add_watched_route(self) -> None:
         frm = self._price_from.get()
         to  = self._price_to.get()
-        dep = self._price_dep_picker.get()
-        ret = self._price_ret_picker.get()
-        if not (frm and to and dep):
+        dep = self._price_dep.get()
+        ret = self._price_ret.get()
+
+        if not frm or not to:
             messagebox.showwarning(
-                "Missing fields",
-                "Please fill in From, To, and pick a departure date.",
-                parent=self._root,
-            )
+                "Missing fields", "Please fill in both From and To airports.",
+                parent=self._root)
             return
+        if not dep:
+            messagebox.showwarning(
+                "No departure date", "Please pick a departure date using the 📅 button.",
+                parent=self._root)
+            return
+
         routes = list(self.settings.get("watched_price_routes", []))
         entry  = {"from": frm, "to": to, "date": dep}
         if ret:
@@ -932,41 +758,47 @@ class FlightTrackerApp:
             routes.append(entry)
             self.settings.set("watched_price_routes", routes)
             self.settings.save()
+
+        if self._price_tracker and self._price_tracker._client.is_configured:
+            self._price_tracker.check_now()
+        else:
+            messagebox.showinfo(
+                "Route saved!",
+                "Your route has been saved.\n\n"
+                "To see live prices, add your free Amadeus API keys in  ⚙  Settings.",
+                parent=self._root,
+            )
+
+    def _manual_price_check(self) -> None:
         if self._price_tracker and self._price_tracker._client.is_configured:
             self._price_tracker.check_now()
         else:
             messagebox.showinfo(
                 "Amadeus not configured",
-                "Route saved!\n\nTo see prices, add your free Amadeus API keys in ⚙ Settings.",
+                "Add your free Amadeus API keys in  ⚙  Settings\n"
+                "(developers.amadeus.com — free sign-up).",
                 parent=self._root,
             )
-
-    def _manual_price_check(self) -> None:
-        if self._price_tracker:
-            self._price_tracker.check_now()
-        else:
-            messagebox.showinfo("Amadeus not configured",
-                                "Add your Amadeus API keys in ⚙ Settings.", parent=self._root)
 
     def _manual_deal_check(self) -> None:
         if self._deal_monitor:
             self._deal_monitor.check_now()
 
     def _test_discord(self) -> None:
-        url = self._discord_url_var.get().strip()
+        url = self._discord_var.get().strip()
         if not url:
-            self._discord_status.configure(text="Enter a webhook URL first.", text_color=ORANGE)
+            self._discord_status.configure(
+                text="Paste your webhook URL first.", text_color=ORANGE)
             return
         from notifications.discord import test_webhook
         ok = test_webhook(url)
         self._discord_status.configure(
-            text="✓ Message sent!" if ok else "✗ Failed — check the URL.",
+            text="✓ Test message sent!" if ok else "✗ Failed — check the URL.",
             text_color=GREEN if ok else RED,
         )
 
     def _save_discord(self) -> None:
-        self.settings.set("discord_webhook",            self._discord_url_var.get().strip())
-        self.settings.set("discord_notify_flights",     self._tog_flights.get())
+        self.settings.set("discord_webhook",            self._discord_var.get().strip())
         self.settings.set("discord_notify_deals",       self._tog_deals.get())
         self.settings.set("discord_notify_price_drops", self._tog_prices.get())
         self.settings.save()
@@ -983,7 +815,7 @@ class FlightTrackerApp:
             text="✓ Saved — restart to apply all changes.", text_color=GREEN)
 
     def _on_close(self) -> None:
-        for svc in (self._tracker, self._updater, self._deal_monitor, self._price_tracker):
+        for svc in (self._updater, self._deal_monitor, self._price_tracker):
             if svc:
                 svc.stop()
         self._root.destroy()
