@@ -33,6 +33,7 @@ class PriceTracker:
 
         self.on_price_drop:      Optional[Callable[[dict], None]]       = None
         self.on_prices_updated:  Optional[Callable[[List[dict]], None]] = None
+        self.on_search_done:     Optional[Callable[[int], None]]        = None
 
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
@@ -74,6 +75,7 @@ class PriceTracker:
 
         all_offers: List[dict] = []
         threshold: float = float(self._settings.get("price_drop_threshold_pct", 10))
+        searches_made = 0
 
         for route in routes:
             origin = route.get("from", "")
@@ -91,6 +93,7 @@ class PriceTracker:
                     cabin_class=cabin_class,
                     airlines=airlines,
                 )
+                searches_made += 1
                 if offers:
                     all_offers.extend(offers)
                     self._process_price(origin, dest, dep_date, offers[0], threshold)
@@ -101,6 +104,9 @@ class PriceTracker:
 
         if all_offers and self.on_prices_updated:
             self.on_prices_updated(all_offers)
+
+        if searches_made and self.on_search_done:
+            self.on_search_done(searches_made)
 
     def _process_price(
         self,

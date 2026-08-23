@@ -17,6 +17,7 @@ COLOUR_FLIGHT  = 0x0038A8   # Philippine blue
 COLOUR_DEAL    = 0xFCD116   # Philippine gold (promo alert)
 COLOUR_PRICE   = 0x2ECC71   # Green (price drop)
 COLOUR_ERROR   = 0xE74C3C   # Red
+COLOUR_STATUS  = 0x7C3AED   # Midnight purple
 
 
 def _build_embed(
@@ -128,6 +129,36 @@ def notify_price_drop(
             {"name": "Route","value": route,                 "inline": True},
         ],
         url=url,
+    )
+    return send(webhook_url, embed)
+
+
+def notify_status(
+    webhook_url: str,
+    window_hours: int,
+    searches_in_window: int,
+    total_searches: int,
+    routes_count: int,
+    next_check: str = "",
+) -> bool:
+    """12-hour heartbeat: how many searches ran and tracker health."""
+    ran = searches_in_window > 0
+    status_line = (
+        f"✅ Ran — **{searches_in_window}** search{'es' if searches_in_window != 1 else ''}"
+        if ran else "⚠️ No searches ran in this window"
+    )
+    fields = [
+        {"name": f"Last {window_hours}h",  "value": status_line,                  "inline": False},
+        {"name": "Routes watched",          "value": str(routes_count),            "inline": True},
+        {"name": "Total since launch",      "value": str(total_searches),          "inline": True},
+    ]
+    if next_check:
+        fields.append({"name": "Next check", "value": next_check, "inline": True})
+    embed = _build_embed(
+        title="📊 PhilFlight — 12-hour status report",
+        description="Automated status from your tracker.",
+        colour=COLOUR_STATUS,
+        fields=fields,
     )
     return send(webhook_url, embed)
 

@@ -1,5 +1,5 @@
 {
-  "version": "1.4.8",
+  "version": "1.5.0",
   "release_date": "2026-08-23",
-  "changelog": "Prices now shown in USD. Dynamic currency symbol ($, €, ₱ etc.) based on API response."
+  "changelog": "Search counter in topbar. Discord sends a 12-hour status report with search count and tracker health."
 }

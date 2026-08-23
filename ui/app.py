@@ -94,6 +94,9 @@ class FlightTrackerApp:
         self._nav_btns:      dict                   = {}
         self._countdown_job: Optional[str]          = None
         self._next_update:   Optional[datetime]     = None
+        self._total_searches: int                   = 0
+        self._window_searches: int                  = 0
+        self._status_job:    Optional[str]          = None
 
     # ───────────────────────────────────── startup ───────────────────────────
 
@@ -214,6 +217,8 @@ class FlightTrackerApp:
         self._pill_status.pack(side="right", padx=4)
         self._lbl_next = _lbl(right, "", size=11, color=SUBTEXT)
         self._lbl_next.pack(side="right", padx=8)
+        self._lbl_searches = _lbl(right, "🔍 0 searches", size=11, color=SUBTEXT)
+        self._lbl_searches.pack(side="right", padx=(0, 12))
 
     # ──────────────────────────── PRICES section ─────────────────────────────
 
@@ -773,6 +778,52 @@ class FlightTrackerApp:
         self._settings_status = _lbl(btn_row, "", size=11, color=GREEN)
         self._settings_status.pack(side="left", padx=14)
 
+    # ────────────────────── Search counter & status ──────────────────────────
+
+    def _inc_search_count(self, n: int) -> None:
+        """Increment search counter and update the topbar label (main-thread safe)."""
+        self._total_searches  += n
+        self._window_searches += n
+        total = self._total_searches
+        label = f"🔍 {total} search{'es' if total != 1 else ''}"
+        if self._root:
+            self._root.after(0, lambda: self._lbl_searches.configure(text=label))
+
+    def _on_tracker_search(self, count: int) -> None:
+        """Called by PriceTracker after each automatic check."""
+        if self._root:
+            self._root.after(0, lambda c=count: self._inc_search_count(c))
+
+    def _schedule_discord_status(self) -> None:
+        """Queue a 12-hour Discord status report."""
+        if not self._root:
+            return
+        if self._status_job:
+            self._root.after_cancel(self._status_job)
+        ms_12h = 12 * 60 * 60 * 1000
+        self._status_job = self._root.after(ms_12h, self._send_discord_status)
+
+    def _send_discord_status(self) -> None:
+        """Post the 12-hour summary to Discord, then reschedule."""
+        webhook = self.settings.get("discord_webhook", "")
+        if webhook:
+            routes = self.settings.get("watched_price_routes", [])
+            next_check = (
+                self._next_update.strftime("%b %d  %H:%M")
+                if self._next_update else ""
+            )
+            count  = self._window_searches
+            total  = self._total_searches
+            n_routes = len(routes)
+            from notifications.discord import notify_status
+            threading.Thread(
+                target=notify_status,
+                args=(webhook, 12, count, total, n_routes, next_check),
+                daemon=True,
+            ).start()
+        self._window_searches = 0
+        self._schedule_discord_status()
+
     # ────────────────────────── Background services ───────────────────────────
 
     def _start_services(self) -> None:
@@ -819,8 +870,10 @@ class FlightTrackerApp:
         )
         self._price_tracker.on_prices_updated = self._on_prices
         self._price_tracker.on_price_drop      = self._on_price_drop
+        self._price_tracker.on_search_done     = self._on_tracker_search
         self._price_tracker.start()
 
+        self._schedule_discord_status()
         self._pill_status.configure(text="● Ready", text_color=GREEN)
 
     # ──────────────────────── Callbacks (background → main) ──────────────────
@@ -1068,6 +1121,7 @@ class FlightTrackerApp:
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_search_done(self, offers: list, frm: str, to: str, dep: str, ret: str) -> None:
+        self._inc_search_count(1)
         self._current_offers = offers
         n = len(offers)
         trip  = "Round trip" if ret else "One-way"
@@ -1199,6 +1253,7 @@ class FlightTrackerApp:
         self._price_tracker = PriceTracker(price_client, self.settings, pi)
         self._price_tracker.on_prices_updated = self._on_prices
         self._price_tracker.on_price_drop      = self._on_price_drop
+        self._price_tracker.on_search_done     = self._on_tracker_search
         self._price_tracker.start()
 
     def _price_interval_minutes(self, client) -> int:
@@ -1228,6 +1283,8 @@ class FlightTrackerApp:
         return int(self.settings.get("price_check_interval_minutes", 60))
 
     def _on_close(self) -> None:
+        if self._status_job and self._root:
+            self._root.after_cancel(self._status_job)
         for svc in (self._updater, self._deal_monitor, self._price_tracker):
             if svc:
                 svc.stop()
