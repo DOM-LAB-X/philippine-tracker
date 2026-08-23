@@ -1,5 +1,5 @@
 {
-  "version": "1.4.5",
+  "version": "1.4.6",
   "release_date": "2026-08-23",
-  "changelog": "Show all results regardless of date, fix Search Now opening dropdown, show actual flight dates on cards"
+  "changelog": "Added SerpApi Google Flights integration as primary price source (100 free searches/month)"
 }

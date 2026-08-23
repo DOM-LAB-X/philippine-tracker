@@ -18,6 +18,7 @@
   "discord_notify_deals": true,
   "discord_notify_price_drops": true,
   "min_reddit_score": 5,
+  "serpapi_key": "",
   "travelpayouts_token": "",
   "amadeus_client_id": "",
   "amadeus_client_secret": "",

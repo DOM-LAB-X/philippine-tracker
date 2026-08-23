@@ -698,7 +698,18 @@ class FlightTrackerApp:
         ).pack(anchor="w")
         r += 1
 
-        r = _sep(scroll, r, "Flight prices  —  Travelpayouts  (FREE affiliate API)")
+        r = _sep(scroll, r, "Google Flights  —  SerpApi  (100 free searches/month  •  serpapi.com)")
+        ctk.CTkLabel(
+            scroll,
+            text="Sign up free at serpapi.com → copy your API key → paste below.\n"
+                 "Best data quality — real-time Google Flights prices.",
+            font=ctk.CTkFont(size=11), text_color=SUBTEXT, justify="left",
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+        r += 1
+        field("SerpApi API Key", "serpapi_key", r, 0, show="*")
+        r += 1
+
+        r = _sep(scroll, r, "Flight prices  —  Travelpayouts  (FREE affiliate API  •  travelpayouts.com)")
         ctk.CTkLabel(
             scroll,
             text=(
@@ -768,9 +779,13 @@ class FlightTrackerApp:
         self._deal_monitor.on_new_deals = self._on_deals
         self._deal_monitor.start()
 
-        # Price tracker — prefer Travelpayouts (free), fall back to Amadeus
+        # Price API priority: SerpApi (Google Flights) → Travelpayouts → Amadeus
+        serp_key = self.settings.get("serpapi_key", "")
         tp_token = self.settings.get("travelpayouts_token", "")
-        if tp_token:
+        if serp_key:
+            from api.serpapi import SerpApiClient
+            price_client = SerpApiClient(serp_key)
+        elif tp_token:
             from api.travelpayouts import TravelpayoutsClient
             price_client = TravelpayoutsClient(tp_token)
         else:
@@ -1149,8 +1164,12 @@ class FlightTrackerApp:
         """Stop and re-create the price tracker with current settings."""
         if self._price_tracker:
             self._price_tracker.stop()
+        serp_key = self.settings.get("serpapi_key", "")
         tp_token = self.settings.get("travelpayouts_token", "")
-        if tp_token:
+        if serp_key:
+            from api.serpapi import SerpApiClient
+            price_client = SerpApiClient(serp_key)
+        elif tp_token:
             from api.travelpayouts import TravelpayoutsClient
             price_client = TravelpayoutsClient(tp_token)
         else:
