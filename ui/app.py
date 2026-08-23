@@ -331,9 +331,9 @@ class FlightTrackerApp:
         self._prices_empty = _lbl(
             self._prices_scroll,
             "Search for a flight above to see prices.\n\n"
-            "  1.  Go to  ⚙  Settings  and add your free Travelpayouts API token\n"
-            "      Sign up at  travelpayouts.com/developers/api  (free, instant)\n\n"
-            "  2.  Enter a route, pick dates, and click  Search\n\n"
+            "  1.  Create a free account at  travelpayouts.com\n"
+            "  2.  Go to  travelpayouts.com/programs/100/tools/api  to get your token\n"
+            "  3.  Paste the token in  ⚙  Settings  →  Travelpayouts API Token\n\n"
             "Example:  HNL → MNL  ·  Nov 14  →  Nov 30  ·  Round trip  ·  PAL, JAL, ANA",
             size=13, color=SUBTEXT, justify="center",
         )
@@ -581,12 +581,17 @@ class FlightTrackerApp:
         ).pack(anchor="w")
         r += 1
 
-        r = _sep(scroll, r, "Flight prices  —  Travelpayouts  (FREE  •  travelpayouts.com/developers/api)")
+        r = _sep(scroll, r, "Flight prices  —  Travelpayouts  (FREE affiliate API)")
         ctk.CTkLabel(
             scroll,
-            text="Sign up free → copy your API token → paste below.  Covers PAL, CEB, JAL, ANA and more.",
-            font=ctk.CTkFont(size=11), text_color=SUBTEXT,
-        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 4))
+            text=(
+                "1.  Go to  travelpayouts.com  and create a free affiliate account\n"
+                "2.  After signing in, go to:  travelpayouts.com/programs/100/tools/api\n"
+                "3.  Copy your API token and paste it below\n"
+                "Covers PAL, CEB, JAL, ANA, Singapore Airlines and more."
+            ),
+            font=ctk.CTkFont(size=11), text_color=SUBTEXT, justify="left",
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
         r += 1
         field("Travelpayouts API Token", "travelpayouts_token", r, 0, show="*")
         r += 1

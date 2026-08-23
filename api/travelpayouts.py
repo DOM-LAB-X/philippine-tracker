@@ -1,7 +1,8 @@
 """
 Travelpayouts flight price API  (free replacement for Amadeus).
 
-Sign up FREE at https://www.travelpayouts.com/developers/api
+Sign up FREE at https://www.travelpayouts.com
+Then get your token at https://www.travelpayouts.com/programs/100/tools/api
 Copy your API token (32-char hex) and paste it in Settings.
 
 What it covers:
