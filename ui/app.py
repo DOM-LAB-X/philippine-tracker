@@ -698,11 +698,15 @@ class FlightTrackerApp:
         ).pack(anchor="w")
         r += 1
 
-        r = _sep(scroll, r, "Google Flights  —  SerpApi  (100 free searches/month  •  serpapi.com)")
+        r = _sep(scroll, r, "Google Flights  —  SerpApi  (250 free searches/month  •  serpapi.com)")
         ctk.CTkLabel(
             scroll,
-            text="Sign up free at serpapi.com → copy your API key → paste below.\n"
-                 "Best data quality — real-time Google Flights prices.",
+            text=(
+                "Sign up free at serpapi.com → copy your API key → paste below.\n"
+                "Best data quality — returns exact real-time Google Flights prices.\n"
+                "Check interval auto-adjusts to stay within the 250/month free tier:\n"
+                "  1 route → every 4 h  ·  2 routes → every 8 h  ·  3+ routes → every 12-24 h"
+            ),
             font=ctk.CTkFont(size=11), text_color=SUBTEXT, justify="left",
         ).grid(row=r, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
         r += 1
@@ -798,8 +802,7 @@ class FlightTrackerApp:
         amadeus = price_client  # alias so rest of method still works
         self._price_tracker = PriceTracker(
             amadeus, self.settings,
-            check_interval_minutes=int(
-                self.settings.get("price_check_interval_minutes", 60)),
+            check_interval_minutes=self._price_interval_minutes(price_client),
         )
         self._price_tracker.on_prices_updated = self._on_prices
         self._price_tracker.on_price_drop      = self._on_price_drop
@@ -1179,11 +1182,37 @@ class FlightTrackerApp:
                 client_secret=self.settings.get("amadeus_client_secret", ""),
                 production=self.settings.get("amadeus_environment", "test") == "production",
             )
-        pi = int(self.settings.get("price_check_interval_minutes", 60))
+        pi = self._price_interval_minutes(price_client)
         self._price_tracker = PriceTracker(price_client, self.settings, pi)
         self._price_tracker.on_prices_updated = self._on_prices
         self._price_tracker.on_price_drop      = self._on_price_drop
         self._price_tracker.start()
+
+    def _price_interval_minutes(self, client) -> int:
+        """
+        Calculate a safe check interval to stay within API free-tier limits.
+
+        SerpApi free tier: 250 searches/month
+          Budget: 200 auto-checks + 50 manual searches
+          Formula: (30 days × 24 h × 60 min) / (200 / num_routes)
+          → 1 route  = every 216 min (3h 36m)  → rounded to 4h
+          → 2 routes = every 432 min (7h 12m)  → rounded to 8h
+          → 3 routes = every 648 min (10h 48m) → rounded to 12h
+          → 4+routes = every 24h (safe floor)
+
+        Travelpayouts / Amadeus: use the setting from ⚙ Settings.
+        """
+        from api.serpapi import SerpApiClient
+        if isinstance(client, SerpApiClient):
+            routes = len(self.settings.get("watched_price_routes", []))
+            num    = max(routes, 1)
+            # 200 auto-check budget across 30 days and num routes
+            interval_min = int((30 * 24 * 60) / (200 / num))
+            # Round up to nearest clean hour, minimum 4h, maximum 24h
+            interval_h = max(4, min(24, -(-interval_min // 60)))  # ceiling div
+            return interval_h * 60
+
+        return int(self.settings.get("price_check_interval_minutes", 60))
 
     def _on_close(self) -> None:
         for svc in (self._updater, self._deal_monitor, self._price_tracker):

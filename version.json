@@ -1,5 +1,5 @@
 {
-  "version": "1.4.6",
+  "version": "1.4.7",
   "release_date": "2026-08-23",
-  "changelog": "Added SerpApi Google Flights integration as primary price source (100 free searches/month)"
+  "changelog": "SerpApi auto-interval: dynamically scales check frequency based on watched routes to stay within 250/month free tier"
 }

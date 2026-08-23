@@ -5,6 +5,7 @@
   "poll_interval_minutes": 30,
   "deal_check_interval_minutes": 60,
   "price_check_interval_minutes": 60,
+  "serpapi_check_interval_hours": 6,
   "github_owner": "dom-lab-x",
   "github_repo": "philippine-tracker",
   "github_token": "",
