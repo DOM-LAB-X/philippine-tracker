@@ -15,8 +15,9 @@ config/user_config.json
 *.exe
 *.app
 
-# Runtime data (deal history, etc.)
-data/
+# Runtime data (deal/price history — generated at runtime, not source files)
+data/seen_deals.json
+data/price_history.json
 
 # OS artifacts
 .DS_Store
