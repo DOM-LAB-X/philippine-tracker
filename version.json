@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.4.2",
   "release_date": "2026-08-23",
-  "changelog": "Fixed calendar crash (CTkToplevel -> tk.Toplevel, no grab_set), cross-platform date format, round-trip search, Google Flights-style UI"
+  "changelog": "Replace Amadeus (deprecated) with Travelpayouts free API. Calendar weekday fix. Multi-airline filter."
 }

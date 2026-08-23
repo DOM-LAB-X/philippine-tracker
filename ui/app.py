@@ -331,9 +331,10 @@ class FlightTrackerApp:
         self._prices_empty = _lbl(
             self._prices_scroll,
             "Search for a flight above to see prices.\n\n"
-            "  •  Add free Amadeus API keys in  ⚙  Settings to activate\n"
-            "  •  Sign up at  developers.amadeus.com  (takes 2 minutes)\n\n"
-            "Example:  HNL → MNL  ·  Nov 14  →  Nov 30  ·  Round trip  ·  PAL",
+            "  1.  Go to  ⚙  Settings  and add your free Travelpayouts API token\n"
+            "      Sign up at  travelpayouts.com/developers/api  (free, instant)\n\n"
+            "  2.  Enter a route, pick dates, and click  Search\n\n"
+            "Example:  HNL → MNL  ·  Nov 14  →  Nov 30  ·  Round trip  ·  PAL, JAL, ANA",
             size=13, color=SUBTEXT, justify="center",
         )
         self._prices_empty.grid(row=0, column=0, pady=80)
@@ -580,7 +581,17 @@ class FlightTrackerApp:
         ).pack(anchor="w")
         r += 1
 
-        r = _sep(scroll, r, "Google Flights prices  (Amadeus API — free at developers.amadeus.com)")
+        r = _sep(scroll, r, "Flight prices  —  Travelpayouts  (FREE  •  travelpayouts.com/developers/api)")
+        ctk.CTkLabel(
+            scroll,
+            text="Sign up free → copy your API token → paste below.  Covers PAL, CEB, JAL, ANA and more.",
+            font=ctk.CTkFont(size=11), text_color=SUBTEXT,
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 4))
+        r += 1
+        field("Travelpayouts API Token", "travelpayouts_token", r, 0, show="*")
+        r += 1
+
+        r = _sep(scroll, r, "Google Flights fallback  —  Amadeus  (if Travelpayouts not set)")
         field("Client ID",     "amadeus_client_id",     r, 0)
         field("Client Secret", "amadeus_client_secret", r, 1, show="*")
         r += 1
@@ -635,13 +646,19 @@ class FlightTrackerApp:
         self._deal_monitor.on_new_deals = self._on_deals
         self._deal_monitor.start()
 
-        # Price tracker
-        from api.amadeus import AmadeusClient
-        amadeus = AmadeusClient(
-            client_id=self.settings.get("amadeus_client_id", ""),
-            client_secret=self.settings.get("amadeus_client_secret", ""),
-            production=self.settings.get("amadeus_environment", "test") == "production",
-        )
+        # Price tracker — prefer Travelpayouts (free), fall back to Amadeus
+        tp_token = self.settings.get("travelpayouts_token", "")
+        if tp_token:
+            from api.travelpayouts import TravelpayoutsClient
+            price_client = TravelpayoutsClient(tp_token)
+        else:
+            from api.amadeus import AmadeusClient
+            price_client = AmadeusClient(
+                client_id=self.settings.get("amadeus_client_id", ""),
+                client_secret=self.settings.get("amadeus_client_secret", ""),
+                production=self.settings.get("amadeus_environment", "test") == "production",
+            )
+        amadeus = price_client  # alias so rest of method still works
         self._price_tracker = PriceTracker(
             amadeus, self.settings,
             check_interval_minutes=int(
