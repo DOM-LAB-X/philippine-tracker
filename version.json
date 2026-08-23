@@ -1,5 +1,5 @@
 {
-  "version": "1.4.3",
+  "version": "1.4.4",
   "release_date": "2026-08-23",
-  "changelog": "Airline autocomplete dropdown, price tracker restarts on settings save (no app restart needed), correct Travelpayouts URLs throughout"
+  "changelog": "Fix no flights found (switch to v3 date-specific API), date filter, watched routes panel with delete and quick-search"
 }

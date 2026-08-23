@@ -338,6 +338,111 @@ class FlightTrackerApp:
 
         self._current_offers: list = []
 
+        # ── Watched routes panel ──────────────────────────────────────────────
+        self._watched_card = _card(parent)
+        self._watched_card.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        self._watched_card.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(3, weight=0)
+
+        watched_hdr = ctk.CTkFrame(self._watched_card, fg_color="transparent")
+        watched_hdr.pack(fill="x", padx=16, pady=(12, 6))
+        _lbl(watched_hdr, "Watched Routes", size=13, weight="bold").pack(side="left")
+        _lbl(watched_hdr, "Auto-checked every hour for price drops",
+             size=11, color=SUBTEXT).pack(side="right")
+
+        self._watched_body = ctk.CTkFrame(self._watched_card, fg_color="transparent")
+        self._watched_body.pack(fill="x", padx=12, pady=(0, 12))
+        self._watched_body.grid_columnconfigure(0, weight=1)
+
+        self._refresh_watched_routes()
+
+    def _refresh_watched_routes(self) -> None:
+        """Redraw the watched routes list."""
+        for w in self._watched_body.winfo_children():
+            w.destroy()
+
+        routes = self.settings.get("watched_price_routes", [])
+        if not routes:
+            _lbl(self._watched_body, "No routes saved yet. Fill in the search form above and click Watch Route.",
+                 size=11, color=SUBTEXT).grid(row=0, column=0, pady=8)
+            return
+
+        for i, route in enumerate(routes):
+            self._add_watched_row(route, i)
+
+    def _add_watched_row(self, route: dict, idx: int) -> None:
+        row = ctk.CTkFrame(self._watched_body, fg_color=CARD_ALT, corner_radius=8)
+        row.grid(row=idx, column=0, sticky="ew", pady=3)
+        row.grid_columnconfigure(1, weight=1)
+
+        frm     = route.get("from", "")
+        to      = route.get("to", "")
+        dep     = route.get("date", "")
+        ret     = route.get("return_date", "")
+        cabin   = route.get("cabin_class", "ECONOMY").replace("_", " ").title()
+        airlines = route.get("airlines", "")
+
+        # Route label
+        route_txt = f"{frm}  →  {to}"
+        dates_txt = dep
+        if ret:
+            dates_txt += f"  →  {ret}  (Round trip)"
+        else:
+            dates_txt += "  (One-way)"
+        if airlines:
+            dates_txt += f"  ·  {airlines}"
+        if cabin != "Economy":
+            dates_txt += f"  ·  {cabin}"
+
+        _lbl(row, route_txt, size=13, weight="bold").grid(
+            row=0, column=0, sticky="w", padx=12, pady=(8, 2))
+        _lbl(row, dates_txt, size=11, color=SUBTEXT).grid(
+            row=1, column=0, sticky="w", padx=12, pady=(0, 8))
+
+        # Buttons
+        btns = ctk.CTkFrame(row, fg_color="transparent")
+        btns.grid(row=0, column=1, rowspan=2, sticky="e", padx=8)
+
+        ctk.CTkButton(
+            btns, text="Search Now", width=100, height=28,
+            fg_color=PURPLE, hover_color=VIOLET,
+            command=lambda r=route: self._search_watched(r),
+        ).pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(
+            btns, text="✕", width=28, height=28,
+            fg_color="transparent", border_width=1, border_color=BORDER,
+            hover_color=RED, text_color=SUBTEXT,
+            command=lambda i=idx: self._delete_watched(i),
+        ).pack(side="left")
+
+    def _search_watched(self, route: dict) -> None:
+        """Pre-fill the search form with a watched route and search it."""
+        self._price_from.set(route.get("from", ""))
+        self._price_to.set(route.get("to", ""))
+        self._price_dep.set(route.get("date", ""))
+        ret = route.get("return_date", "")
+        if ret:
+            self._price_ret.set(ret)
+            self._trip_var.set("Round trip")
+            self._on_trip_type_change("Round trip")
+        else:
+            self._price_ret.clear()
+            self._trip_var.set("One-way")
+            self._on_trip_type_change("One-way")
+        if route.get("airlines"):
+            self._airline_entry.set(route["airlines"])
+        self._search_prices()
+
+    def _delete_watched(self, idx: int) -> None:
+        routes = list(self.settings.get("watched_price_routes", []))
+        if 0 <= idx < len(routes):
+            routes.pop(idx)
+            self.settings.set("watched_price_routes", routes)
+            self.settings.save()
+        self._refresh_watched_routes()
+        self._restart_price_tracker()
+
     # ── Price result card ─────────────────────────────────────────────────────
 
     def _render_price_results(
@@ -958,6 +1063,8 @@ class FlightTrackerApp:
             routes.append(entry)
             self.settings.set("watched_price_routes", routes)
             self.settings.save()
+
+        self._refresh_watched_routes()   # update the watched routes panel
 
         if self._price_tracker and self._price_tracker._client.is_configured:
             self._price_tracker.check_now()
