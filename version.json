@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "release_date": "2026-08-22",
-  "changelog": "Redesigned UI, airport autocomplete, 12-hour time, Discord in-app, round-trip dates, desktop shortcut installer"
+  "version": "1.2.0",
+  "release_date": "2026-08-23",
+  "changelog": "Midnight purple theme, calendar date picker, dismissible flight cards, simplified settings, Google Flights-inspired layout"
 }
