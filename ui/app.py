@@ -18,7 +18,7 @@ from config.settings import Settings
 from core.deal_monitor import DealMonitor
 from core.price_tracker import PriceTracker
 from core.updater import AutoUpdater
-from ui.widgets import AirportEntry, DatePicker, fmt_iso_time, iata_to_icao
+from ui.widgets import AirlineEntry, AirportEntry, DatePicker, fmt_iso_time, iata_to_icao
 
 logger = logging.getLogger(__name__)
 
@@ -228,11 +228,8 @@ class FlightTrackerApp:
         trip_toggle.pack(side="left")
 
         _lbl(r0, "  Airlines:", size=11, color=SUBTEXT).pack(side="left", padx=(20, 4))
-        self._airline_filter_var = tk.StringVar()
-        ctk.CTkEntry(
-            r0, textvariable=self._airline_filter_var,
-            placeholder_text="PAL, JAL, ANA…", width=160,
-        ).pack(side="left", padx=(0, 16))
+        self._airline_entry = AirlineEntry(r0, placeholder="PAL, JAL, ANA…", width=190)
+        self._airline_entry.pack(side="left", padx=(0, 16))
 
         _lbl(r0, "Passengers:", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
         self._pax_var = tk.StringVar(value="1")
@@ -890,15 +887,17 @@ class FlightTrackerApp:
 
         if not (self._price_tracker and self._price_tracker._client.is_configured):
             messagebox.showinfo(
-                "Amadeus not configured",
-                "Add your free Amadeus API keys in  ⚙  Settings\n"
-                "(developers.amadeus.com — free sign-up).", parent=self._root)
+                "Price API not configured",
+                "Add your Travelpayouts API token in  ⚙  Settings.\n\n"
+                "Sign up free at  travelpayouts.com\n"
+                "Then get your token at  travelpayouts.com/programs/100/tools/api",
+                parent=self._root)
             return
 
         self._search_status.configure(text="Searching…", text_color=LAVENDER)
         cabin   = self._cabin_var.get().upper().replace(" ", "_")
         pax     = int(self._pax_var.get())
-        airlines = self._airline_filter_var.get().strip()
+        airlines = self._airline_entry.get()
 
         def _run():
             try:
@@ -937,7 +936,7 @@ class FlightTrackerApp:
         ret = self._price_ret.get() if self._trip_var.get() == "Round trip" else ""
         cabin    = self._cabin_var.get().upper().replace(" ", "_")
         pax      = int(self._pax_var.get())
-        airlines = self._airline_filter_var.get().strip()
+        airlines = self._airline_entry.get()
 
         if not frm or not to:
             messagebox.showwarning("Missing fields",
@@ -967,7 +966,7 @@ class FlightTrackerApp:
         else:
             messagebox.showinfo(
                 "Route saved!",
-                "Route saved.\n\nAdd Amadeus API keys in  ⚙  Settings to see live prices.",
+                "Route saved.\n\nAdd your Travelpayouts token in  ⚙  Settings to see live prices.",
                 parent=self._root,
             )
 
@@ -976,9 +975,10 @@ class FlightTrackerApp:
             self._price_tracker.check_now()
         else:
             messagebox.showinfo(
-                "Amadeus not configured",
-                "Add your free Amadeus API keys in  ⚙  Settings\n"
-                "(developers.amadeus.com — free sign-up).",
+                "Price API not configured",
+                "Add your Travelpayouts API token in  ⚙  Settings.\n\n"
+                "Sign up free at  travelpayouts.com\n"
+                "Then get your token at  travelpayouts.com/programs/100/tools/api",
                 parent=self._root,
             )
 
@@ -1013,8 +1013,31 @@ class FlightTrackerApp:
         self.settings.set("amadeus_environment", self._amadeus_env.get())
         self.settings.save()
         ctk.set_appearance_mode(self._theme_var.get())
-        self._settings_status.configure(
-            text="✓ Saved — restart to apply all changes.", text_color=GREEN)
+
+        # Restart price tracker immediately with the new token — no app restart needed
+        self._restart_price_tracker()
+        self._settings_status.configure(text="✓ Saved!", text_color=GREEN)
+
+    def _restart_price_tracker(self) -> None:
+        """Stop and re-create the price tracker with current settings."""
+        if self._price_tracker:
+            self._price_tracker.stop()
+        tp_token = self.settings.get("travelpayouts_token", "")
+        if tp_token:
+            from api.travelpayouts import TravelpayoutsClient
+            price_client = TravelpayoutsClient(tp_token)
+        else:
+            from api.amadeus import AmadeusClient
+            price_client = AmadeusClient(
+                client_id=self.settings.get("amadeus_client_id", ""),
+                client_secret=self.settings.get("amadeus_client_secret", ""),
+                production=self.settings.get("amadeus_environment", "test") == "production",
+            )
+        pi = int(self.settings.get("price_check_interval_minutes", 60))
+        self._price_tracker = PriceTracker(price_client, self.settings, pi)
+        self._price_tracker.on_prices_updated = self._on_prices
+        self._price_tracker.on_price_drop      = self._on_price_drop
+        self._price_tracker.start()
 
     def _on_close(self) -> None:
         for svc in (self._updater, self._deal_monitor, self._price_tracker):

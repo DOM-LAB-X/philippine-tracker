@@ -24,6 +24,63 @@ TEXT     = "#ede9fe"
 SUBTEXT  = "#8b7ec8"
 BG       = "#080812"
 
+# ── Airline database ─────────────────────────────────────────────────────────
+AIRLINES_DB: list[dict] = [
+    {"code": "PR",  "alias": "PAL", "name": "Philippine Airlines"},
+    {"code": "5J",  "alias": "CEB", "name": "Cebu Pacific"},
+    {"code": "Z2",  "alias": "APA", "name": "AirAsia Philippines"},
+    {"code": "DG",  "alias": "PAX", "name": "PAL Express"},
+    {"code": "JL",  "alias": "JAL", "name": "Japan Airlines"},
+    {"code": "NH",  "alias": "ANA", "name": "All Nippon Airways"},
+    {"code": "KE",  "alias": "KAL", "name": "Korean Air"},
+    {"code": "OZ",  "alias": "AAR", "name": "Asiana Airlines"},
+    {"code": "SQ",  "alias": "SIA", "name": "Singapore Airlines"},
+    {"code": "CX",  "alias": "CPA", "name": "Cathay Pacific"},
+    {"code": "EK",  "alias": "UAE", "name": "Emirates"},
+    {"code": "QR",  "alias": "QTR", "name": "Qatar Airways"},
+    {"code": "EY",  "alias": "ETD", "name": "Etihad Airways"},
+    {"code": "TG",  "alias": "THA", "name": "Thai Airways"},
+    {"code": "MH",  "alias": "MAS", "name": "Malaysia Airlines"},
+    {"code": "GA",  "alias": "GIA", "name": "Garuda Indonesia"},
+    {"code": "CI",  "alias": "CAL", "name": "China Airlines"},
+    {"code": "BR",  "alias": "EVA", "name": "EVA Air"},
+    {"code": "UA",  "alias": "UAL", "name": "United Airlines"},
+    {"code": "AA",  "alias": "AAL", "name": "American Airlines"},
+    {"code": "DL",  "alias": "DAL", "name": "Delta Air Lines"},
+    {"code": "HA",  "alias": "HAL", "name": "Hawaiian Airlines"},
+    {"code": "CZ",  "alias": "CSN", "name": "China Southern"},
+    {"code": "MU",  "alias": "CES", "name": "China Eastern"},
+    {"code": "CA",  "alias": "CCA", "name": "Air China"},
+    {"code": "VN",  "alias": "HVN", "name": "Vietnam Airlines"},
+    {"code": "VJ",  "alias": "VJC", "name": "VietJet Air"},
+    {"code": "TR",  "alias": "TGW", "name": "Scoot"},
+    {"code": "AK",  "alias": "AXM", "name": "AirAsia"},
+    {"code": "D7",  "alias": "XAX", "name": "AirAsia X"},
+]
+
+
+def search_airlines(query: str, max_results: int = 8) -> list[dict]:
+    """Match query against IATA code, alias, or airline name."""
+    if not query:
+        return []
+    q = query.upper().strip()
+    exact, partial = [], []
+    for a in AIRLINES_DB:
+        if a["code"] == q or a["alias"] == q:
+            exact.append(a)
+        elif (
+            a["code"].startswith(q)
+            or a["alias"].startswith(q)
+            or q in a["name"].upper()
+        ):
+            partial.append(a)
+    return (exact + partial)[:max_results]
+
+
+def airline_label(a: dict) -> str:
+    return f"{a['alias']}  —  {a['name']}  ({a['code']})"
+
+
 # ── Airport database ─────────────────────────────────────────────────────────
 _AIRPORTS: list = []
 
@@ -214,6 +271,148 @@ class AirportEntry(ctk.CTkFrame):
         self._close_dropdown()
         if self._on_select:
             self._on_select(a)
+
+    def _focus_list(self, _=None) -> None:
+        if self._listbox:
+            self._listbox.focus_set()
+            self._listbox.selection_set(0)
+
+    def _list_up(self, _=None) -> None:
+        if self._listbox and self._listbox.curselection() == (0,):
+            self._entry.focus_set()
+
+    def _on_focus_out(self, _=None) -> None:
+        self.after(180, self._close_dropdown)
+
+
+# ── AirlineEntry ─────────────────────────────────────────────────────────────
+
+class AirlineEntry(ctk.CTkFrame):
+    """
+    Multi-select airline autocomplete.
+
+    Works like AirportEntry but supports comma-separated multiple airlines:
+      • Type 'JAL' → dropdown shows Japan Airlines
+      • Select → entry shows 'JAL'
+      • Type ', A' → dropdown filters on 'A' → select ANA → 'JAL, ANA'
+
+    get() returns the raw text (e.g. 'JAL, ANA, PAL').
+    Use resolve_airline_codes() from api.amadeus to convert to IATA codes.
+    """
+
+    _DROPDOWN_H = 220
+
+    def __init__(
+        self,
+        parent,
+        placeholder: str = "e.g. JAL, ANA, PAL",
+        width: int = 220,
+        **kwargs,
+    ) -> None:
+        super().__init__(parent, fg_color="transparent", **kwargs)
+        self._dropdown: Optional[tk.Toplevel] = None
+        self._listbox:  Optional[tk.Listbox]  = None
+        self._matches:  list                  = []
+
+        self._var = tk.StringVar()
+        self._entry = ctk.CTkEntry(
+            self, textvariable=self._var,
+            placeholder_text=placeholder, width=width,
+        )
+        self._entry.pack(fill="x")
+
+        self._var.trace_add("write", self._on_type)
+        self._entry.bind("<Down>",     self._focus_list)
+        self._entry.bind("<Escape>",   lambda _: self._close_dropdown())
+        self._entry.bind("<FocusOut>", self._on_focus_out)
+
+    def get(self) -> str:
+        return self._var.get().strip()
+
+    def set(self, value: str) -> None:
+        self._var.set(value)
+
+    def clear(self) -> None:
+        self._var.set("")
+
+    # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _current_token(self) -> str:
+        """Return the token the user is currently typing (after last comma)."""
+        parts = self._var.get().split(",")
+        return parts[-1].strip()
+
+    def _on_type(self, *_) -> None:
+        token = self._current_token()
+        self._matches = search_airlines(token) if token else []
+        if self._matches:
+            self._open_dropdown()
+        else:
+            self._close_dropdown()
+
+    def _open_dropdown(self) -> None:
+        if self._dropdown:
+            self._populate_list()
+            return
+        root = self._entry.winfo_toplevel()
+        self._dropdown = tk.Toplevel(root)
+        self._dropdown.wm_overrideredirect(True)
+        self._dropdown.configure(bg="#1a1835")
+
+        self._listbox = tk.Listbox(
+            self._dropdown,
+            bg="#1a1835", fg=TEXT,
+            selectbackground=PURPLE, selectforeground="white",
+            activestyle="none", relief="flat",
+            highlightthickness=0,
+            font=("Segoe UI", 11),
+            height=6, borderwidth=0,
+        )
+        self._listbox.pack(fill="both", expand=True, padx=1, pady=1)
+        self._listbox.bind("<ButtonRelease-1>", self._on_pick)
+        self._listbox.bind("<Return>",          self._on_pick)
+        self._listbox.bind("<Escape>",          lambda _: self._close_dropdown())
+        self._listbox.bind("<Up>",              self._list_up)
+
+        self._populate_list()
+        self._position_dropdown()
+
+    def _populate_list(self) -> None:
+        if not self._listbox:
+            return
+        self._listbox.delete(0, tk.END)
+        for a in self._matches:
+            self._listbox.insert(tk.END, f"  {airline_label(a)}")
+
+    def _position_dropdown(self) -> None:
+        if not self._dropdown:
+            return
+        self._entry.update_idletasks()
+        x = self._entry.winfo_rootx()
+        y = self._entry.winfo_rooty() + self._entry.winfo_height()
+        w = max(self._entry.winfo_width(), 380)
+        self._dropdown.geometry(f"{w}x{self._DROPDOWN_H}+{x}+{y}")
+
+    def _close_dropdown(self) -> None:
+        if self._dropdown:
+            self._dropdown.destroy()
+            self._dropdown = None
+            self._listbox  = None
+
+    def _on_pick(self, _=None) -> None:
+        if not self._listbox:
+            return
+        idx = self._listbox.curselection() or (0,)
+        chosen = self._matches[idx[0]]
+
+        # Replace only the current (last) token, keep previous selections
+        existing = self._var.get()
+        parts = [p.strip() for p in existing.split(",")]
+        parts[-1] = chosen["alias"]          # use the familiar 3-letter name
+        self._var.set(", ".join(p for p in parts if p))
+        self._close_dropdown()
+        # Move cursor to end of entry
+        self._entry.after(10, lambda: self._entry.icursor(tk.END))
 
     def _focus_list(self, _=None) -> None:
         if self._listbox:

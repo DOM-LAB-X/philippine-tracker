@@ -1,5 +1,5 @@
 {
-  "version": "1.4.2",
+  "version": "1.4.3",
   "release_date": "2026-08-23",
-  "changelog": "Replace Amadeus (deprecated) with Travelpayouts free API. Calendar weekday fix. Multi-airline filter."
+  "changelog": "Airline autocomplete dropdown, price tracker restarts on settings save (no app restart needed), correct Travelpayouts URLs throughout"
 }
