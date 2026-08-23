@@ -102,11 +102,6 @@ class TravelpayoutsClient:
             offers = self._v1_cheap(origin, destination, departure_date,
                                      return_date, currency)
 
-        # Strict date filter — only return flights within ±1 day of the
-        # requested departure date (API sometimes returns nearby dates)
-        if departure_date and offers:
-            offers = _filter_by_date(offers, departure_date, "departure_time")
-
         # Filter by airline if requested
         if airlines and offers:
             codes = set(resolve_airline_codes(airlines).split(","))

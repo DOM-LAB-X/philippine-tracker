@@ -483,7 +483,7 @@ class FlightTrackerApp:
                  weight="bold").pack(side="right", padx=14)
 
         # Flight rows — Google-Flights style
-        for i, o in enumerate(offers[:8]):
+        for i, o in enumerate(offers[:12]):
             bg = CARD_ALT if i % 2 == 0 else CARD
             row_f = ctk.CTkFrame(card, fg_color=bg, corner_radius=0)
             row_f.grid(row=i + 1, column=0, sticky="ew", pady=0)
@@ -492,13 +492,27 @@ class FlightTrackerApp:
             # Airline name
             airline = o.get("airline_name") or o.get("airline_code", "—")
             _lbl(row_f, airline, size=12, weight="bold", anchor="w",
-                 width=190).grid(row=0, column=0, padx=14, pady=12, sticky="w")
+                 width=190).grid(row=0, column=0, padx=14, pady=(10, 2), sticky="w")
+
+            # Actual departure date (shown so user knows which date this is)
+            dep_raw = o.get("departure_time", "")
+            dep_date_s = ""
+            if dep_raw and len(dep_raw) >= 10:
+                try:
+                    from datetime import datetime as _dt
+                    d = _dt.fromisoformat(dep_raw[:10])
+                    dep_date_s = f"{d.strftime('%b')} {d.day}"
+                except Exception:
+                    dep_date_s = dep_raw[:10]
+            if dep_date_s:
+                _lbl(row_f, dep_date_s, size=10, color=SUBTEXT, anchor="w").grid(
+                    row=1, column=0, padx=14, pady=(0, 10), sticky="w")
 
             # Times
-            dep_t = fmt_iso_time(o.get("departure_time", ""))
+            dep_t = fmt_iso_time(dep_raw)
             arr_t = fmt_iso_time(o.get("arrival_time", ""))
             times_frame = ctk.CTkFrame(row_f, fg_color="transparent")
-            times_frame.grid(row=0, column=1, padx=4, sticky="w")
+            times_frame.grid(row=0, column=1, rowspan=2, padx=4, sticky="w")
             _lbl(times_frame, dep_t, size=14, weight="bold").pack(side="left")
             _lbl(times_frame, "  ──►  ", size=11, color=BORDER).pack(side="left")
             _lbl(times_frame, arr_t, size=14, weight="bold").pack(side="left")
@@ -506,13 +520,14 @@ class FlightTrackerApp:
             # Stops + duration
             stops   = o.get("stops", 0)
             stops_s = "Non-stop" if stops == 0 else f"{stops} stop{'s' if stops > 1 else ''}"
-            dur     = o.get("duration", "").replace("PT", "").replace("H", "h ").replace("M", "m")
-            _lbl(row_f, f"{stops_s}  ·  {dur}", size=11,
-                 color=SUBTEXT).grid(row=0, column=2, padx=4, sticky="w")
+            dur     = o.get("duration", "")
+            info    = stops_s + (f"  ·  {dur}" if dur else "")
+            _lbl(row_f, info, size=11, color=SUBTEXT).grid(
+                row=0, column=2, padx=4, sticky="w")
 
             # Seats
             seats = o.get("seats_left")
-            if seats and seats <= 9:
+            if seats and isinstance(seats, int) and seats <= 9:
                 _lbl(row_f, f"{seats} seats left", size=11,
                      color=ORANGE).grid(row=0, column=3, padx=8, sticky="e")
 
@@ -1024,10 +1039,15 @@ class FlightTrackerApp:
     def _on_search_done(self, offers: list, frm: str, to: str, dep: str, ret: str) -> None:
         self._current_offers = offers
         n = len(offers)
-        trip = "Round trip" if ret else "One-way"
+        trip  = "Round trip" if ret else "One-way"
         label = f"{frm} → {to}  ·  {dep}" + (f" → {ret}" if ret else "") + f"  ·  {trip}"
-        self._search_status.configure(
-            text=f"{n} result{'s' if n != 1 else ''} found", text_color=GREEN)
+
+        if n == 0:
+            self._search_status.configure(
+                text="No results — try a different date or route", text_color=ORANGE)
+        else:
+            self._search_status.configure(
+                text=f"{n} flight{'s' if n != 1 else ''} found", text_color=GREEN)
         self._sort_bar.grid()
         self._render_price_results(offers, section_label=label)
 

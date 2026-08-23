@@ -1,5 +1,5 @@
 {
-  "version": "1.4.4",
+  "version": "1.4.5",
   "release_date": "2026-08-23",
-  "changelog": "Fix no flights found (switch to v3 date-specific API), date filter, watched routes panel with delete and quick-search"
+  "changelog": "Show all results regardless of date, fix Search Now opening dropdown, show actual flight dates on cards"
 }

@@ -189,6 +189,8 @@ class AirportEntry(ctk.CTkFrame):
         )
         self._entry.pack(fill="x")
 
+        self._suppress: bool = False
+
         self._var.trace_add("write", self._on_type)
         self._entry.bind("<Down>",     self._focus_list)
         self._entry.bind("<Escape>",   lambda _: self._close_dropdown())
@@ -198,13 +200,19 @@ class AirportEntry(ctk.CTkFrame):
         return self._var.get().strip().upper()
 
     def set(self, value: str) -> None:
+        """Set value programmatically without opening the autocomplete dropdown."""
+        self._suppress = True
         self._var.set(value)
+        self._suppress = False
+        self._close_dropdown()
 
     @property
     def selected_airport(self) -> Optional[dict]:
         return self._selected
 
     def _on_type(self, *_) -> None:
+        if self._suppress:
+            return
         self._selected = None
         self._matches  = search_airports(self._var.get())
         if self._matches:
@@ -310,9 +318,10 @@ class AirlineEntry(ctk.CTkFrame):
         **kwargs,
     ) -> None:
         super().__init__(parent, fg_color="transparent", **kwargs)
-        self._dropdown: Optional[tk.Toplevel] = None
-        self._listbox:  Optional[tk.Listbox]  = None
-        self._matches:  list                  = []
+        self._dropdown:  Optional[tk.Toplevel] = None
+        self._listbox:   Optional[tk.Listbox]  = None
+        self._matches:   list                  = []
+        self._suppress:  bool                  = False  # blocks dropdown on programmatic set
 
         self._var = tk.StringVar()
         self._entry = ctk.CTkEntry(
@@ -330,10 +339,17 @@ class AirlineEntry(ctk.CTkFrame):
         return self._var.get().strip()
 
     def set(self, value: str) -> None:
+        """Set value programmatically without opening the autocomplete dropdown."""
+        self._suppress = True
         self._var.set(value)
+        self._suppress = False
+        self._close_dropdown()
 
     def clear(self) -> None:
+        self._suppress = True
         self._var.set("")
+        self._suppress = False
+        self._close_dropdown()
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -343,6 +359,8 @@ class AirlineEntry(ctk.CTkFrame):
         return parts[-1].strip()
 
     def _on_type(self, *_) -> None:
+        if self._suppress:
+            return
         token = self._current_token()
         self._matches = search_airlines(token) if token else []
         if self._matches:
