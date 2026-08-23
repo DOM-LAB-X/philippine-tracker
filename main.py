@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 from config.settings import Settings  # noqa: E402
-from ui.app import FlightTrackerApp   # noqa: E402
+from ui.app import FlightTrackerApp  # noqa: E402
 
 
 def main() -> None:
@@ -26,8 +26,9 @@ def main() -> None:
     icon_path = os.path.join(ROOT, "assets", "icon.ico")
     if not os.path.exists(icon_path):
         try:
-            from assets.create_icon import generate
             from pathlib import Path
+
+            from assets.create_icon import generate
             generate(Path(ROOT) / "assets")
         except Exception as exc:
             logging.warning("Could not generate icon: %s", exc)

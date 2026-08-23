@@ -8,7 +8,7 @@ import logging
 import threading
 import tkinter as tk
 import webbrowser
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import messagebox
 from typing import List, Optional
@@ -16,11 +16,11 @@ from typing import List, Optional
 import customtkinter as ctk
 
 from config.settings import Settings
-from core.tracker import FlightTracker
-from core.updater import AutoUpdater
 from core.deal_monitor import DealMonitor
 from core.price_tracker import PriceTracker
-from ui.widgets import AirportEntry, fmt_time, fmt_datetime, iata_to_icao
+from core.tracker import FlightTracker
+from core.updater import AutoUpdater
+from ui.widgets import AirportEntry, fmt_datetime, fmt_time, iata_to_icao
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,8 @@ class FlightTrackerApp:
         ]:
             if path.exists():
                 try:
-                    fn(path); return
+                    fn(path)
+                    return
                 except Exception:
                     pass
 
@@ -167,7 +168,7 @@ class FlightTrackerApp:
         logo_frame.pack_propagate(False)
         ctk.CTkLabel(logo_frame, text="✈", font=ctk.CTkFont(size=22), text_color="white").place(relx=0.5, rely=0.5, anchor="center")
 
-        for icon, key, tooltip in NAV_ITEMS:
+        for icon, key, _tooltip in NAV_ITEMS:
             btn = ctk.CTkButton(
                 sb,
                 text=icon,
@@ -192,7 +193,7 @@ class FlightTrackerApp:
                      text_color=BORDER).pack(side="bottom", pady=12)
 
     def _show_section(self, key: str) -> None:
-        for k, frame in self._sections.items():
+        for _k, frame in self._sections.items():
             frame.grid_remove()
         self._sections[key].grid()
 
@@ -510,7 +511,8 @@ class FlightTrackerApp:
         self._sfields: dict[str, tk.StringVar] = {}
         r = [0]
         def next_row():
-            r[0] += 1; return r[0]
+            r[0] += 1
+            return r[0]
 
         section("Polling intervals")
         nr = next_row()
@@ -910,10 +912,11 @@ class FlightTrackerApp:
                         0, lambda msg=m: self._upd_lbl.configure(text=msg)
                     )
                 )
-            except Exception as exc:
-                self._root.after(0, lambda: (dlg.destroy(),
-                                              messagebox.showerror("Update failed", str(exc),
-                                                                   parent=self._root)))
+            except Exception as err:
+                err_msg = str(err)
+                self._root.after(0, lambda m=err_msg: (dlg.destroy(),
+                                                        messagebox.showerror("Update failed", m,
+                                                                             parent=self._root)))
         threading.Thread(target=_run, daemon=True).start()
 
     # ── Actions ───────────────────────────────────────────────────────────────

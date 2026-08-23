@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── 1. Lint ───────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff
+        run: ruff check . --output-format=github
+
+  # ── 2. Security — code ───────────────────────────────────────────────────
+  security-code:
+    name: Security scan (Bandit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install bandit[toml]
+
+      - name: Run Bandit
+        # Medium+ severity, skip test dirs and git folder
+        run: >
+          bandit -r .
+          -x ./.git,./assets
+          --severity-level medium
+          --confidence-level medium
+          -f txt
+
+  # ── 3. Security — dependencies ───────────────────────────────────────────
+  security-deps:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.txt
+
+  # ── 4. Import check (smoke test) ─────────────────────────────────────────
+  smoke:
+    name: Import smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check all modules import cleanly
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, ".")
+          mods = [
+              "config.settings",
+              "api.opensky",
+              "api.amadeus",
+              "core.tracker",
+              "core.updater",
+              "core.deal_monitor",
+              "core.price_tracker",
+              "notifications.discord",
+              "scrapers.reddit",
+              "scrapers.airline_deals",
+          ]
+          for m in mods:
+              __import__(m)
+              print(f"  ok  {m}")
+          print("All imports passed.")
+          EOF

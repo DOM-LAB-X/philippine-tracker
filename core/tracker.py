@@ -3,7 +3,7 @@ import threading
 from datetime import datetime
 from typing import Callable, List, Optional
 
-from api.opensky import OpenSkyClient, NetworkError, OpenSkyError, RateLimitError
+from api.opensky import NetworkError, OpenSkyClient, OpenSkyError, RateLimitError
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)

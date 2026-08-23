@@ -1,0 +1,19 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+# E4/E7/E9 = critical pycodestyle  F = pyflakes (undefined names, unused imports)
+# I = import sorting  B = bugbear (common bug patterns)  N = naming conventions
+select = ["E4", "E7", "E9", "F", "B", "N", "I"]
+
+ignore = [
+    "E402",   # module level import not at top (we do sys.path manipulation)
+    "B008",   # do not perform function calls in default arguments
+    "N802",   # function name should be lowercase (tkinter callbacks use camelCase)
+    "N806",   # variable in function should be lowercase
+    "F401",   # imported but unused (some __init__.py re-exports)
+]
+
+[lint.per-file-ignores]
+"ui/*.py"   = ["N803", "N815"]   # customtkinter uses mixed-case widget names
+"assets/*.py" = ["B"]            # icon generation script, not production code

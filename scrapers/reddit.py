@@ -3,10 +3,11 @@ Reddit deal monitor using RSS feeds.
 Reddit's JSON API now requires OAuth, but RSS feeds are still publicly accessible.
 """
 import logging
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from typing import List
 from email.utils import parsedate_to_datetime
+from typing import List
+
+import defusedxml.ElementTree as ET
 
 import requests
 
@@ -41,7 +42,8 @@ def search_deals(hours_back: int = 24) -> List[dict]:
             if post["url"] not in seen:
                 seen.add(post["url"])
                 found.append(post)
-        import time; time.sleep(2)  # be polite between subreddit requests
+        import time
+        time.sleep(2)  # be polite between subreddit requests
 
     return found
 

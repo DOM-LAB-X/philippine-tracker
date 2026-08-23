@@ -111,7 +111,7 @@ class OpenSkyClient:
             resp.raise_for_status()
             return resp.json()
         except requests.Timeout:
-            raise NetworkError("OpenSky request timed out.")
+            raise NetworkError("OpenSky request timed out.") from None
         except requests.ConnectionError as exc:
             raise NetworkError(f"Cannot reach OpenSky: {exc}") from exc
         except requests.HTTPError as exc:

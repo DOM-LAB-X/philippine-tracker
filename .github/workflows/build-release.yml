@@ -2,15 +2,19 @@ name: Build Windows EXE
 
 on:
   release:
-    types: [created]       # fires automatically whenever you create a release
-  workflow_dispatch:       # lets you trigger it manually from the Actions tab
+    types: [created]   # auto-runs whenever you publish a GitHub release
+  workflow_dispatch:   # lets you trigger manually from the Actions tab
+
+permissions:
+  contents: write      # required to upload assets to a release
 
 jobs:
   build:
+    name: Build on Windows
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python 3.12
@@ -18,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install dependencies + PyInstaller
         run: |
           pip install -r requirements.txt
           pip install pyinstaller
@@ -27,23 +31,31 @@ jobs:
         run: python assets/create_icon.py
 
       - name: Build single-file EXE
-        run: >
-          pyinstaller
-          --name "PhilFlight Tracker"
-          --windowed
-          --onefile
-          --icon "assets\icon.ico"
-          --add-data "assets\icon.ico;assets"
-          --add-data "assets\icon.png;assets"
-          --add-data "config\default_config.json;config"
-          --add-data "data\airports.json;data"
-          --add-data "version.json;."
-          main.py
+        run: |
+          pyinstaller `
+            --name "PhilFlight Tracker" `
+            --windowed `
+            --onefile `
+            --icon "assets\icon.ico" `
+            --add-data "assets\icon.ico;assets" `
+            --add-data "assets\icon.png;assets" `
+            --add-data "config\default_config.json;config" `
+            --add-data "data\airports.json;data" `
+            --add-data "version.json;." `
+            main.py
 
-      - name: Upload EXE to release
+      # ── Triggered by a release → attach EXE to that release ──────────────
+      - name: Upload EXE to GitHub Release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: "dist/PhilFlight Tracker.exe"
-          tag_name: ${{ github.event.release.tag_name || 'v1.1.0' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Triggered manually → save EXE as a downloadable artifact ─────────
+      - name: Upload EXE as workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhilFlight-Tracker-Windows
+          path: "dist/PhilFlight Tracker.exe"
+          retention-days: 7
