@@ -359,12 +359,15 @@ class _CalendarPopup(tk.Toplevel):
         # Close when focus leaves — delay 200ms to avoid
         # immediately closing if a child widget gets focus
         self.bind("<FocusOut>", lambda _: self.after(200, self._check_close))
-        # Also close on Escape
-        self.bind_all("<Escape>", lambda _: self._safe_destroy())
-        # Set focus so FocusOut fires
+        # Escape closes only this popup, not the whole app (bind not bind_all)
+        self.bind("<Escape>", lambda _: self._safe_destroy())
+        # Set focus so FocusOut fires when user clicks elsewhere
         self.after(50, self.focus_set)
 
     # ── Build ─────────────────────────────────────────────────────────────────
+
+    # Sunday-first calendar — fixes day-of-week column alignment
+    _CAL = calendar.Calendar(firstweekday=6)
 
     def _build(self) -> None:
         inner = tk.Frame(self, bg=self._BG, padx=10, pady=10)
@@ -374,13 +377,14 @@ class _CalendarPopup(tk.Toplevel):
         nav = tk.Frame(inner, bg=self._BG)
         nav.pack(fill="x", pady=(0, 6))
 
-        tk.Button(
+        self._prev_btn = tk.Button(
             nav, text="‹", width=3,
             bg=self._BG, fg=self._TEXT,
             activebackground=self._BORDER, activeforeground=self._TEXT,
             relief="flat", bd=0, cursor="hand2",
             command=self._prev,
-        ).pack(side="left")
+        )
+        self._prev_btn.pack(side="left")
 
         self._title = tk.Label(
             nav, text="",
@@ -397,7 +401,7 @@ class _CalendarPopup(tk.Toplevel):
             command=self._next,
         ).pack(side="right")
 
-        # Weekday header
+        # Weekday header (Sunday-first to match _CAL)
         wk = tk.Frame(inner, bg=self._BG)
         wk.pack(fill="x", pady=(0, 2))
         for label in ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"):
@@ -419,7 +423,15 @@ class _CalendarPopup(tk.Toplevel):
 
         self._title.configure(text=self._view.strftime("%B %Y"))
 
-        for week in calendar.monthcalendar(self._view.year, self._view.month):
+        # Disable ‹ if already at the earliest selectable month
+        today_first = date(self._today.year, self._today.month, 1)
+        self._prev_btn.configure(
+            state="disabled" if self._view <= today_first else "normal",
+            fg=self._DIM if self._view <= today_first else self._TEXT,
+        )
+
+        # Use Sunday-first calendar (fixes day-of-week column alignment)
+        for week in self._CAL.monthdayscalendar(self._view.year, self._view.month):
             row = tk.Frame(self._grid, bg=self._BG)
             row.pack(anchor="w")
             for day in week:
@@ -474,11 +486,26 @@ class _CalendarPopup(tk.Toplevel):
         self._safe_destroy()
 
     def _check_close(self) -> None:
-        """Destroy only if focus has truly left this window."""
+        """Destroy only if focus has truly left this window.
+
+        Walks the widget.master chain instead of comparing string names,
+        which is more reliable across tkinter versions.
+        """
         try:
-            focused = str(self.focus_get())
-            if not focused.startswith(str(self)):
+            focused = self.focus_get()
+            if focused is None:
                 self._safe_destroy()
+                return
+            # Walk up the hierarchy to see if focused widget is inside us
+            w = focused
+            while w is not None:
+                if w is self:
+                    return  # focus still inside popup — keep open
+                try:
+                    w = w.master
+                except Exception:
+                    break
+            self._safe_destroy()
         except Exception:
             self._safe_destroy()
 

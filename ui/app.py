@@ -227,7 +227,14 @@ class FlightTrackerApp:
         )
         trip_toggle.pack(side="left")
 
-        _lbl(r0, "  Passengers:", size=11, color=SUBTEXT).pack(side="left", padx=(20, 4))
+        _lbl(r0, "  Airlines:", size=11, color=SUBTEXT).pack(side="left", padx=(20, 4))
+        self._airline_filter_var = tk.StringVar()
+        ctk.CTkEntry(
+            r0, textvariable=self._airline_filter_var,
+            placeholder_text="PAL, JAL, ANA…", width=160,
+        ).pack(side="left", padx=(0, 16))
+
+        _lbl(r0, "Passengers:", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
         self._pax_var = tk.StringVar(value="1")
         ctk.CTkOptionMenu(
             r0, variable=self._pax_var,
@@ -867,8 +874,9 @@ class FlightTrackerApp:
             return
 
         self._search_status.configure(text="Searching…", text_color=LAVENDER)
-        cabin = self._cabin_var.get().upper().replace(" ", "_")
-        pax   = int(self._pax_var.get())
+        cabin   = self._cabin_var.get().upper().replace(" ", "_")
+        pax     = int(self._pax_var.get())
+        airlines = self._airline_filter_var.get().strip()
 
         def _run():
             try:
@@ -877,6 +885,7 @@ class FlightTrackerApp:
                     return_date=ret,
                     adults=pax,
                     cabin_class=cabin,
+                    airlines=airlines,
                     max_results=15,
                 )
                 self._root.after(0, lambda: self._on_search_done(offers, frm, to, dep, ret))
@@ -904,8 +913,9 @@ class FlightTrackerApp:
         to  = self._price_to.get()
         dep = self._price_dep.get()
         ret = self._price_ret.get() if self._trip_var.get() == "Round trip" else ""
-        cabin = self._cabin_var.get().upper().replace(" ", "_")
-        pax   = int(self._pax_var.get())
+        cabin    = self._cabin_var.get().upper().replace(" ", "_")
+        pax      = int(self._pax_var.get())
+        airlines = self._airline_filter_var.get().strip()
 
         if not frm or not to:
             messagebox.showwarning("Missing fields",
@@ -921,6 +931,8 @@ class FlightTrackerApp:
                        "cabin_class": cabin, "adults": pax}
         if ret:
             entry["return_date"] = ret
+        if airlines:
+            entry["airlines"] = airlines
         if entry not in routes:
             routes.append(entry)
             self.settings.set("watched_price_routes", routes)

@@ -42,13 +42,69 @@ ICAO_TO_IATA: dict[str, str] = {
     "RPVB": "TAG",   # Bohol-Panglao
 }
 
+# IATA 2-letter code → full airline name
 AIRLINE_NAMES: dict[str, str] = {
     "PR": "Philippine Airlines",
     "5J": "Cebu Pacific",
     "Z2": "AirAsia Philippines",
     "DG": "PAL Express",
-    "2P": "AirPhil Express",
+    "JL": "Japan Airlines",
+    "NH": "All Nippon Airways (ANA)",
+    "KE": "Korean Air",
+    "OZ": "Asiana Airlines",
+    "SQ": "Singapore Airlines",
+    "CX": "Cathay Pacific",
+    "EK": "Emirates",
+    "QR": "Qatar Airways",
+    "EY": "Etihad Airways",
+    "TG": "Thai Airways",
+    "MH": "Malaysia Airlines",
+    "GA": "Garuda Indonesia",
+    "CI": "China Airlines",
+    "BR": "EVA Air",
+    "UA": "United Airlines",
+    "AA": "American Airlines",
+    "DL": "Delta Air Lines",
+    "HA": "Hawaiian Airlines",
 }
+
+# Common 2–3 letter aliases → IATA code
+_ALIAS_TO_IATA: dict[str, str] = {
+    "PAL": "PR",  "PR":  "PR",
+    "CEB": "5J",  "5J":  "5J",
+    "APA": "Z2",  "Z2":  "Z2",   "AIRASIA": "Z2",
+    "JAL": "JL",  "JL":  "JL",
+    "ANA": "NH",  "NH":  "NH",
+    "KAL": "KE",  "KE":  "KE",
+    "AAR": "OZ",  "OZ":  "OZ",
+    "SIA": "SQ",  "SQ":  "SQ",
+    "CPA": "CX",  "CX":  "CX",
+    "UAE": "EK",  "EK":  "EK",
+    "QTR": "QR",  "QR":  "QR",
+    "ETD": "EY",  "EY":  "EY",
+    "THA": "TG",  "TG":  "TG",
+    "MAS": "MH",  "MH":  "MH",
+    "GIA": "GA",  "GA":  "GA",
+    "CAL": "CI",  "CI":  "CI",
+    "EVA": "BR",  "BR":  "BR",
+    "UAL": "UA",  "UA":  "UA",
+    "AAL": "AA",  "AA":  "AA",
+    "DAL": "DL",  "DL":  "DL",
+    "HAL": "HA",  "HA":  "HA",
+}
+
+
+def resolve_airline_codes(raw: str) -> str:
+    """
+    Convert user-typed airline names to comma-separated IATA codes.
+    Accepts any mix of aliases: 'JAL, ANA, PAL' → 'JL,NH,PR'
+    Unknown codes are passed through as-is.
+    """
+    codes = []
+    for token in raw.upper().replace(" ", "").split(","):
+        if token:
+            codes.append(_ALIAS_TO_IATA.get(token, token))
+    return ",".join(dict.fromkeys(codes))  # deduplicate, preserve order
 
 
 class AmadeusError(Exception):
@@ -87,7 +143,12 @@ class AmadeusClient:
         cabin_class: str = "ECONOMY",
         currency: str = "PHP",
         max_results: int = 10,
+        airlines: str = "",
     ) -> list[dict]:
+        """
+        Search for flights.  airlines is a comma-separated list of IATA or
+        common codes, e.g. 'JAL, ANA, PAL' or 'JL,NH,PR'.
+        """
         """
         Search for flights.  origin / destination accept both IATA (MNL) and
         ICAO (RPLL) codes — ICAO is converted automatically.
@@ -111,6 +172,10 @@ class AmadeusClient:
         }
         if return_date:
             params["returnDate"] = return_date
+        if airlines:
+            iata_codes = resolve_airline_codes(airlines)
+            if iata_codes:
+                params["includedAirlineCodes"] = iata_codes
 
         resp = self._get(_SEARCH_PATH, params)
         return self._parse_offers(resp, origin, destination)

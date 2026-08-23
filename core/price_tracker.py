@@ -83,11 +83,13 @@ class PriceTracker:
                 continue
             ret_date    = route.get("return_date", "")
             cabin_class = route.get("cabin_class", "ECONOMY")
+            airlines    = route.get("airlines", "")
             try:
                 offers = self._client.search_flights(
                     origin, dest, dep_date,
                     return_date=ret_date,
                     cabin_class=cabin_class,
+                    airlines=airlines,
                 )
                 if offers:
                     all_offers.extend(offers)
