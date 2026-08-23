@@ -111,7 +111,7 @@ def generate(dest: Path = HERE) -> None:
         format="ICO",
         sizes=ico_sizes,
     )
-    print(f"Icon saved → {dest / 'icon.ico'} ({len(ico_sizes)} sizes) and {dest / 'icon.png'}")
+    print(f"Icon saved -> {dest / 'icon.ico'} ({len(ico_sizes)} sizes) and {dest / 'icon.png'}")
 
 
 if __name__ == "__main__":
