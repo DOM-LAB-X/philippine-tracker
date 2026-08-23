@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title PhilFlight Tracker — Installer
+title PhilFlight Tracker - Installer
 
 echo.
 echo  ==========================================
-echo   PhilFlight Tracker — First-Time Setup
+echo   PhilFlight Tracker - First-Time Setup
 echo  ==========================================
 echo.
 
@@ -24,29 +24,33 @@ python assets\create_icon.py
 echo        Done.
 echo.
 
-:: Create desktop shortcut using PowerShell
+:: Write a PowerShell script to a temp file to avoid encoding issues
 echo  [3/3] Creating desktop shortcut...
 set "APP_DIR=%~dp0"
 set "APP_DIR=%APP_DIR:~0,-1%"
+set "PS_SCRIPT=%TEMP%\phil_shortcut.ps1"
+
+(
+    echo $ws      = New-Object -ComObject WScript.Shell
+    echo $desktop = [Environment]::GetFolderPath('Desktop'^)
+    echo $s       = $ws.CreateShortcut($desktop + '\PhilFlight Tracker.lnk'^)
+    echo $s.TargetPath       = 'pythonw'
+    echo $s.Arguments        = '"%APP_DIR%\main.py"'
+    echo $s.WorkingDirectory = '%APP_DIR%'
+    echo $s.IconLocation     = '%APP_DIR%\assets\icon.ico'
+    echo $s.Description      = 'PhilFlight Tracker'
+    echo $s.Save(^)
+) > "%PS_SCRIPT%"
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%"
+del "%PS_SCRIPT%" 2>nul
+
 set "SHORTCUT=%USERPROFILE%\Desktop\PhilFlight Tracker.lnk"
-set "ICON=%APP_DIR%\assets\icon.ico"
-set "SCRIPT=%APP_DIR%\main.py"
-
-powershell -NoProfile -Command ^
-  "$ws = New-Object -ComObject WScript.Shell;" ^
-  "$s  = $ws.CreateShortcut('%SHORTCUT%');" ^
-  "$s.TargetPath    = 'pythonw';" ^
-  "$s.Arguments     = '\"%SCRIPT%\"';" ^
-  "$s.WorkingDirectory = '%APP_DIR%';" ^
-  "$s.IconLocation  = '%ICON%';" ^
-  "$s.Description   = 'PhilFlight Tracker — Live Philippine flight monitor';" ^
-  "$s.Save();"
-
 if exist "%SHORTCUT%" (
     echo        Shortcut created on your Desktop!
 ) else (
-    echo        Could not create shortcut ^(PowerShell may be restricted^).
-    echo        You can still launch the app by double-clicking launch.bat
+    echo        Shortcut could not be created.
+    echo        You can still open the app by double-clicking launch.bat
 )
 
 echo.
