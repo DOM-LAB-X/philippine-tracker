@@ -95,13 +95,78 @@ class AutoUpdater:
         self,
         on_progress: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        Download the latest source zip from GitHub, replace current files,
-        and restart the application.  Call this from a background thread.
+        """Route to the correct update strategy based on how the app is running."""
+        if getattr(sys, "frozen", False):
+            self._update_exe(on_progress)
+        else:
+            self._update_source(on_progress)
 
-        on_progress(message) is called with status strings so the UI can
-        show progress. Raises on failure so the UI can catch and display.
+    def _update_exe(
+        self,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> None:
         """
+        .exe update path:
+        1. Fetch the latest release from GitHub API
+        2. Download the .exe asset
+        3. Write a tiny batch script that replaces the running exe after it exits
+        4. Launch the batch script and quit
+        """
+        import subprocess
+
+        def progress(msg: str) -> None:
+            logger.info(msg)
+            if on_progress:
+                on_progress(msg)
+
+        progress("Finding latest release…")
+        api_url = f"https://api.github.com/repos/{self._owner}/{self._repo}/releases/latest"
+        resp = requests.get(api_url, timeout=CHECK_TIMEOUT)
+        resp.raise_for_status()
+        assets = resp.json().get("assets", [])
+        exe_asset = next((a for a in assets if a["name"].endswith(".exe")), None)
+        if not exe_asset:
+            raise RuntimeError(
+                "No .exe found in the latest GitHub release.\n"
+                "The build may still be in progress — try again in a few minutes."
+            )
+
+        current_exe = Path(sys.executable)
+        tmp_exe     = current_exe.with_name("PhilFlight_update.exe")
+        bat_path    = current_exe.with_name("_do_update.bat")
+
+        download_url = exe_asset["browser_download_url"]
+        progress("Downloading update…")
+        with requests.get(download_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as r:
+            r.raise_for_status()
+            total      = int(r.headers.get("content-length", 0))
+            downloaded = 0
+            with open(tmp_exe, "wb") as f:
+                for chunk in r.iter_content(chunk_size=32_768):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        progress(f"Downloading… {int(downloaded / total * 100)}%")
+
+        progress("Installing…")
+        bat_path.write_text(
+            "@echo off\n"
+            "timeout /t 2 /nobreak >NUL\n"
+            f'move /y "{tmp_exe}" "{current_exe}"\n'
+            f'start "" "{current_exe}"\n'
+            'del "%~f0"\n',
+            encoding="utf-8",
+        )
+
+        progress("Restarting…")
+        subprocess.Popen(["cmd", "/c", str(bat_path)], creationflags=0x08000000)
+        sys.exit(0)
+
+    def _update_source(
+        self,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Python-source update: download zip, extract, copy files, restart."""
         def progress(msg: str) -> None:
             logger.info(msg)
             if on_progress:

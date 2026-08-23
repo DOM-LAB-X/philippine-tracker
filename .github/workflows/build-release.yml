@@ -1,0 +1,49 @@
+name: Build Windows EXE
+
+on:
+  release:
+    types: [created]       # fires automatically whenever you create a release
+  workflow_dispatch:       # lets you trigger it manually from the Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Generate app icon
+        run: python assets/create_icon.py
+
+      - name: Build single-file EXE
+        run: >
+          pyinstaller
+          --name "PhilFlight Tracker"
+          --windowed
+          --onefile
+          --icon "assets\icon.ico"
+          --add-data "assets\icon.ico;assets"
+          --add-data "assets\icon.png;assets"
+          --add-data "config\default_config.json;config"
+          --add-data "data\airports.json;data"
+          --add-data "version.json;."
+          main.py
+
+      - name: Upload EXE to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "dist/PhilFlight Tracker.exe"
+          tag_name: ${{ github.event.release.tag_name || 'v1.1.0' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
