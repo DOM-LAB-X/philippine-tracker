@@ -82,7 +82,9 @@ class AmadeusClient:
         origin: str,
         destination: str,
         departure_date: str,
+        return_date: str = "",
         adults: int = 1,
+        cabin_class: str = "ECONOMY",
         currency: str = "PHP",
         max_results: int = 10,
     ) -> list[dict]:
@@ -105,8 +107,11 @@ class AmadeusClient:
             "adults":                  adults,
             "currencyCode":            currency,
             "max":                     max_results,
-            "nonStop":                 "false",
+            "travelClass":             cabin_class.upper(),
         }
+        if return_date:
+            params["returnDate"] = return_date
+
         resp = self._get(_SEARCH_PATH, params)
         return self._parse_offers(resp, origin, destination)
 

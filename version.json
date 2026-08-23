@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.4.0",
   "release_date": "2026-08-23",
-  "changelog": "Removed Flights tab — app now focuses on price tracking and deals. Fixed Discord webhook layout bug. Calendar date picker. Cleaner settings."
+  "changelog": "Fixed calendar crash (CTkToplevel -> tk.Toplevel, no grab_set), cross-platform date format, round-trip search, Google Flights-style UI"
 }

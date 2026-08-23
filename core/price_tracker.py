@@ -81,8 +81,14 @@ class PriceTracker:
             dep_date = route.get("date", "")
             if not (origin and dest and dep_date):
                 continue
+            ret_date    = route.get("return_date", "")
+            cabin_class = route.get("cabin_class", "ECONOMY")
             try:
-                offers = self._client.search_flights(origin, dest, dep_date)
+                offers = self._client.search_flights(
+                    origin, dest, dep_date,
+                    return_date=ret_date,
+                    cabin_class=cabin_class,
+                )
                 if offers:
                     all_offers.extend(offers)
                     self._process_price(origin, dest, dep_date, offers[0], threshold)

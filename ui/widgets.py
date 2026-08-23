@@ -1,5 +1,8 @@
 """
 Shared UI widgets: AirportEntry autocomplete, DatePicker calendar, time helpers.
+
+Calendar uses tk.Toplevel (not CTkToplevel) to avoid grab_set() crashes.
+Date formatting is cross-platform (no strftime %-d which breaks on Windows).
 """
 import calendar
 import json
@@ -10,11 +13,13 @@ from typing import Callable, List, Optional
 
 import customtkinter as ctk
 
-# ── Palette (imported here so widgets match the app theme) ──────────────────
+# ── Palette ──────────────────────────────────────────────────────────────────
 PURPLE   = "#7c3aed"
 LAVENDER = "#a78bfa"
 CARD     = "#141228"
+CARD_ALT = "#1a1835"
 BORDER   = "#2d2850"
+SIDEBAR  = "#0e0c1c"
 TEXT     = "#ede9fe"
 SUBTEXT  = "#8b7ec8"
 BG       = "#080812"
@@ -37,22 +42,23 @@ def _load_airports() -> list:
 
 
 def search_airports(query: str, max_results: int = 8) -> List[dict]:
+    """Match query against IATA, ICAO, airport name, city, or country."""
     if not query:
         return []
     q = query.upper().strip()
     airports = _load_airports()
-    results = []
+    exact, partial = [], []
     for a in airports:
-        if (
+        if a["iata"] == q or a.get("icao", "") == q:
+            exact.append(a)
+        elif (
             a["iata"].startswith(q)
-            or a.get("icao", "").startswith(q)
             or q in a["name"].upper()
             or q in a["city"].upper()
             or q in a["country"].upper()
         ):
-            results.append(a)
-        if len(results) >= max_results:
-            break
+            partial.append(a)
+    results = (exact + partial)[:max_results]
     return results
 
 
@@ -69,8 +75,12 @@ def iata_to_icao(iata: str) -> str:
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
 
+def _day_str(d: date) -> str:
+    """Cross-platform: 'Nov 14, 2026' without leading zero, any OS."""
+    return f"{d.strftime('%b')} {d.day}, {d.year}"
+
+
 def fmt_time(unix_ts) -> str:
-    """Unix timestamp → '2:34 PM'"""
     if unix_ts is None:
         return "—"
     try:
@@ -81,22 +91,8 @@ def fmt_time(unix_ts) -> str:
         return "—"
 
 
-def fmt_datetime(unix_ts) -> str:
-    """Unix timestamp → 'Aug 22, 2:34 PM'"""
-    if unix_ts is None:
-        return "—"
-    try:
-        t = datetime.fromtimestamp(int(unix_ts))
-        h = t.hour % 12 or 12
-        ampm = ("AM", "PM")[t.hour >= 12]
-        day = t.day
-        return t.strftime(f"%b {day},  {h}:%M {ampm}")
-    except Exception:
-        return "—"
-
-
 def fmt_iso_time(iso_str: str) -> str:
-    """ISO 8601 datetime string → '2:34 PM'"""
+    """'2026-11-14T14:30:00'  →  '2:30 PM'"""
     if not iso_str or "T" not in iso_str:
         return iso_str or "—"
     try:
@@ -112,7 +108,7 @@ def fmt_iso_time(iso_str: str) -> str:
 class AirportEntry(ctk.CTkFrame):
     """Text entry with live airport-search dropdown."""
 
-    _DROPDOWN_H = 220
+    _DROPDOWN_H = 230
 
     def __init__(
         self,
@@ -163,7 +159,8 @@ class AirportEntry(ctk.CTkFrame):
         if self._dropdown:
             self._populate_list()
             return
-        self._dropdown = tk.Toplevel(self._entry)
+        root = self._entry.winfo_toplevel()
+        self._dropdown = tk.Toplevel(root)
         self._dropdown.wm_overrideredirect(True)
         self._dropdown.configure(bg="#1a1835")
 
@@ -198,7 +195,7 @@ class AirportEntry(ctk.CTkFrame):
         self._entry.update_idletasks()
         x = self._entry.winfo_rootx()
         y = self._entry.winfo_rooty() + self._entry.winfo_height()
-        w = max(self._entry.winfo_width(), 420)
+        w = max(self._entry.winfo_width(), 440)
         self._dropdown.geometry(f"{w}x{self._DROPDOWN_H}+{x}+{y}")
 
     def _close_dropdown(self) -> None:
@@ -228,16 +225,20 @@ class AirportEntry(ctk.CTkFrame):
             self._entry.focus_set()
 
     def _on_focus_out(self, _=None) -> None:
-        self.after(150, self._close_dropdown)
+        self.after(180, self._close_dropdown)
 
 
 # ── DatePicker ────────────────────────────────────────────────────────────────
 
 class DatePicker(ctk.CTkFrame):
     """
-    An entry + calendar button.  Click the button to open a month calendar;
-    click a day to fill the entry with that date (YYYY-MM-DD internally,
-    shown as 'Aug 22, 2026').
+    Read-only display entry + 📅 button that opens a stable calendar popup.
+
+    Bug fixes vs prior version:
+    - Uses tk.Toplevel (not CTkToplevel) — avoids grab_set() crashes
+    - No grab_set() at all — closes on FocusOut instead
+    - Cross-platform date display (no strftime %-d)
+    - Entry uses state="normal" so StringVar updates always render
     """
 
     def __init__(
@@ -249,59 +250,90 @@ class DatePicker(ctk.CTkFrame):
         **kwargs,
     ) -> None:
         super().__init__(parent, fg_color="transparent", **kwargs)
-        self._min_date = min_date or date.today()
+        self._min_date  = min_date or date.today()
         self._selected: Optional[date] = None
         self._var = tk.StringVar()
 
+        # state="normal" is required — readonly prevents StringVar from
+        # updating the visual display in some customtkinter versions
         self._entry = ctk.CTkEntry(
             self, textvariable=self._var,
             placeholder_text=placeholder,
-            width=width, state="readonly",
+            width=width,
         )
         self._entry.pack(side="left")
 
         ctk.CTkButton(
-            self, text="📅", width=34, height=34,
-            fg_color="transparent", border_width=1, border_color=BORDER,
-            hover_color="#2d2850",
+            self, text="📅", width=36, height=34,
+            fg_color="transparent",
+            border_width=1, border_color=BORDER,
+            hover_color=BORDER,
             command=self._open_calendar,
         ).pack(side="left", padx=(4, 0))
 
-    def get(self) -> str:
-        """Return selected date as YYYY-MM-DD, or empty string."""
-        return self._selected.isoformat() if self._selected else ""
+    # ── Public API ────────────────────────────────────────────────────────────
 
-    def get_display(self) -> str:
-        return self._var.get()
+    def get(self) -> str:
+        """Return selected date as YYYY-MM-DD, or '' if nothing selected."""
+        # Also accept typed ISO dates
+        raw = self._var.get().strip()
+        if self._selected:
+            return self._selected.isoformat()
+        # Try to parse typed text
+        for fmt in ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y"):
+            try:
+                from datetime import datetime as _dt
+                d = _dt.strptime(raw, fmt).date()
+                self._selected = d
+                return d.isoformat()
+            except ValueError:
+                pass
+        return ""
 
     def set(self, iso_date: str) -> None:
+        """Populate from a YYYY-MM-DD string."""
         try:
             d = date.fromisoformat(iso_date)
             self._selected = d
-            self._var.set(d.strftime("%b %-d, %Y"))
+            self._var.set(_day_str(d))
         except Exception:
-            try:
-                # Windows-safe fallback
-                d = date.fromisoformat(iso_date)
-                self._selected = d
-                self._var.set(d.strftime("%b %d, %Y").replace(" 0", "  "))
-            except Exception:
-                pass
+            pass
+
+    def clear(self) -> None:
+        self._selected = None
+        self._var.set("")
+
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _open_calendar(self) -> None:
-        _CalendarPopup(self, min_date=self._min_date, callback=self._on_pick)
+        _CalendarPopup(self, callback=self._on_pick, min_date=self._min_date)
 
     def _on_pick(self, d: date) -> None:
         self._selected = d
-        # Cross-platform day formatting (no leading zero)
-        try:
-            self._var.set(d.strftime("%b %-d, %Y"))
-        except ValueError:
-            self._var.set(d.strftime("%b %d, %Y").replace(" 0", "  "))
+        self._var.set(_day_str(d))
 
 
-class _CalendarPopup(ctk.CTkToplevel):
-    """Modal calendar popup used by DatePicker."""
+# ── Calendar popup (tk.Toplevel — no CTkToplevel, no grab_set) ───────────────
+
+class _CalendarPopup(tk.Toplevel):
+    """
+    Borderless calendar dropdown.
+
+    Why tk.Toplevel and not CTkToplevel:
+      CTkToplevel + grab_set() can freeze / crash the parent app on Windows
+      because grab_set() intercepts all input globally. Using tk.Toplevel
+      with FocusOut-based closing is stable on all platforms.
+    """
+
+    # Colours (plain tk — not customtkinter)
+    _BG       = "#0e0c1c"
+    _CARD     = "#141228"
+    _BORDER   = "#2d2850"
+    _PURPLE   = "#7c3aed"
+    _LAVENDER = "#a78bfa"
+    _TEXT     = "#ede9fe"
+    _DIM      = "#8b7ec8"
+    _TODAY_FG = "#ffffff"
 
     def __init__(
         self,
@@ -309,81 +341,119 @@ class _CalendarPopup(ctk.CTkToplevel):
         callback: Callable[[date], None],
         min_date: Optional[date] = None,
     ) -> None:
-        super().__init__(parent)
+        # Attach to the true Tk root so the popup stays on top
+        root = parent.winfo_toplevel()
+        super().__init__(root)
+
         self._callback = callback
         self._min_date = min_date or date.today()
         self._today    = date.today()
-        # Start on this month if min_date is this month, else min_date month
-        self._view = date(self._today.year, self._today.month, 1)
+        self._view     = date(self._today.year, self._today.month, 1)
 
-        self.title("")
-        self.resizable(False, False)
-        self.configure(fg_color="#0e0c1c")
-        self.grab_set()
+        self.wm_overrideredirect(True)          # borderless
+        self.configure(bg=self._BORDER)         # 1-px purple border effect
 
         self._build()
         self._position(parent)
 
+        # Close when focus leaves — delay 200ms to avoid
+        # immediately closing if a child widget gets focus
+        self.bind("<FocusOut>", lambda _: self.after(200, self._check_close))
+        # Also close on Escape
+        self.bind_all("<Escape>", lambda _: self._safe_destroy())
+        # Set focus so FocusOut fires
+        self.after(50, self.focus_set)
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+
     def _build(self) -> None:
+        inner = tk.Frame(self, bg=self._BG, padx=10, pady=10)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
         # Navigation header
-        hdr = ctk.CTkFrame(self, fg_color="transparent")
-        hdr.pack(fill="x", padx=10, pady=10)
-        ctk.CTkButton(
-            hdr, text="‹", width=30, height=30,
-            fg_color="transparent", hover_color=BORDER,
+        nav = tk.Frame(inner, bg=self._BG)
+        nav.pack(fill="x", pady=(0, 6))
+
+        tk.Button(
+            nav, text="‹", width=3,
+            bg=self._BG, fg=self._TEXT,
+            activebackground=self._BORDER, activeforeground=self._TEXT,
+            relief="flat", bd=0, cursor="hand2",
             command=self._prev,
         ).pack(side="left")
-        self._title = ctk.CTkLabel(
-            hdr, text="", font=ctk.CTkFont(size=13, weight="bold"), text_color=TEXT
+
+        self._title = tk.Label(
+            nav, text="",
+            bg=self._BG, fg=self._TEXT,
+            font=("Segoe UI", 12, "bold"),
         )
         self._title.pack(side="left", expand=True)
-        ctk.CTkButton(
-            hdr, text="›", width=30, height=30,
-            fg_color="transparent", hover_color=BORDER,
+
+        tk.Button(
+            nav, text="›", width=3,
+            bg=self._BG, fg=self._TEXT,
+            activebackground=self._BORDER, activeforeground=self._TEXT,
+            relief="flat", bd=0, cursor="hand2",
             command=self._next,
         ).pack(side="right")
 
-        # Weekday headers
-        wk = ctk.CTkFrame(self, fg_color="transparent")
-        wk.pack(fill="x", padx=10)
-        for d in ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"):
-            ctk.CTkLabel(
-                wk, text=d, width=38,
-                font=ctk.CTkFont(size=10, weight="bold"),
-                text_color=SUBTEXT,
+        # Weekday header
+        wk = tk.Frame(inner, bg=self._BG)
+        wk.pack(fill="x", pady=(0, 2))
+        for label in ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"):
+            tk.Label(
+                wk, text=label, width=4,
+                bg=self._BG, fg=self._DIM,
+                font=("Segoe UI", 9),
             ).pack(side="left")
 
-        # Grid frame
-        self._grid = ctk.CTkFrame(self, fg_color="transparent")
-        self._grid.pack(fill="both", padx=10, pady=(4, 12))
+        # Day grid
+        self._grid = tk.Frame(inner, bg=self._BG)
+        self._grid.pack(fill="both")
+
         self._refresh()
 
     def _refresh(self) -> None:
         for w in self._grid.winfo_children():
             w.destroy()
+
         self._title.configure(text=self._view.strftime("%B %Y"))
 
         for week in calendar.monthcalendar(self._view.year, self._view.month):
-            row = ctk.CTkFrame(self._grid, fg_color="transparent")
-            row.pack()
+            row = tk.Frame(self._grid, bg=self._BG)
+            row.pack(anchor="w")
             for day in week:
                 if day == 0:
-                    ctk.CTkLabel(row, text="", width=38).pack(side="left", padx=1, pady=1)
+                    tk.Label(row, text="", width=4, bg=self._BG).pack(
+                        side="left", padx=2, pady=2)
                     continue
-                d      = date(self._view.year, self._view.month, day)
-                past   = d < self._min_date
-                today  = d == self._today
-                ctk.CTkButton(
-                    row, text=str(day),
-                    width=36, height=32,
-                    corner_radius=8,
-                    fg_color=PURPLE if today else "transparent",
-                    hover_color=LAVENDER if not past else "transparent",
-                    text_color=SUBTEXT if past else TEXT,
-                    font=ctk.CTkFont(size=12),
-                    state="disabled" if past else "normal",
-                    command=(lambda dt=d: self._pick(dt)) if not past else None,
-                ).pack(side="left", padx=1, pady=1)
+                d       = date(self._view.year, self._view.month, day)
+                past    = d < self._min_date
+                today   = d == self._today
+                bg      = self._PURPLE if today else self._BG
+                fg      = self._TODAY_FG if today else (self._DIM if past else self._TEXT)
+                hover   = self._LAVENDER
+                cursor  = "arrow" if past else "hand2"
+                state   = "disabled" if past else "normal"
+
+                btn = tk.Button(
+                    row,
+                    text=str(day),
+                    width=3,
+                    bg=bg, fg=fg,
+                    activebackground=hover,
+                    activeforeground=self._BG,
+                    relief="flat", bd=0,
+                    padx=2, pady=4,
+                    font=("Segoe UI", 11),
+                    cursor=cursor,
+                    state=state,
+                )
+                if not past:
+                    btn.configure(command=lambda dt=d: self._pick(dt))
+                btn.pack(side="left", padx=2, pady=2)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _prev(self) -> None:
         y, m = self._view.year, self._view.month - 1
@@ -401,13 +471,36 @@ class _CalendarPopup(ctk.CTkToplevel):
 
     def _pick(self, d: date) -> None:
         self._callback(d)
-        self.destroy()
+        self._safe_destroy()
+
+    def _check_close(self) -> None:
+        """Destroy only if focus has truly left this window."""
+        try:
+            focused = str(self.focus_get())
+            if not focused.startswith(str(self)):
+                self._safe_destroy()
+        except Exception:
+            self._safe_destroy()
+
+    def _safe_destroy(self) -> None:
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
     def _position(self, parent) -> None:
         self.update_idletasks()
         try:
             x = parent.winfo_rootx()
-            y = parent.winfo_rooty() + parent.winfo_height() + 4
-            self.geometry(f"+{x}+{y}")
+            y = parent.winfo_rooty() + parent.winfo_height() + 2
+            w = self.winfo_reqwidth()
+            h = self.winfo_reqheight()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            if x + w > sw:
+                x = sw - w - 8
+            if y + h > sh:
+                y = parent.winfo_rooty() - h - 2
+            self.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
             pass

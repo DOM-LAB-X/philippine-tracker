@@ -210,66 +210,134 @@ class FlightTrackerApp:
         parent.grid_rowconfigure(1, weight=1)
         parent.grid_columnconfigure(0, weight=1)
 
-        # ── Add route card ────────────────────────────────────────────────────
-        add = _card(parent)
-        add.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        # ── Search card (Google Flights style) ───────────────────────────────
+        search_card = _card(parent)
+        search_card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
 
-        hdr_row = ctk.CTkFrame(add, fg_color="transparent")
-        hdr_row.pack(fill="x", padx=18, pady=(16, 8))
-        _lbl(hdr_row, "Track a Flight Price", size=15, weight="bold").pack(side="left")
-        _lbl(hdr_row,
-             "Powered by Google Flights / Amadeus  ·  Add API keys in  ⚙  Settings",
+        # Row 0 — trip type + passengers + cabin
+        r0 = ctk.CTkFrame(search_card, fg_color="transparent")
+        r0.pack(fill="x", padx=18, pady=(16, 6))
+
+        self._trip_var = tk.StringVar(value="Round trip")
+        trip_toggle = ctk.CTkSegmentedButton(
+            r0, values=["One-way", "Round trip"],
+            variable=self._trip_var,
+            width=220, height=30,
+            command=self._on_trip_type_change,
+        )
+        trip_toggle.pack(side="left")
+
+        _lbl(r0, "  Passengers:", size=11, color=SUBTEXT).pack(side="left", padx=(20, 4))
+        self._pax_var = tk.StringVar(value="1")
+        ctk.CTkOptionMenu(
+            r0, variable=self._pax_var,
+            values=["1", "2", "3", "4", "5", "6"],
+            width=70, height=30,
+        ).pack(side="left", padx=(0, 16))
+
+        _lbl(r0, "Cabin:", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._cabin_var = tk.StringVar(value="Economy")
+        ctk.CTkOptionMenu(
+            r0, variable=self._cabin_var,
+            values=["Economy", "Premium Economy", "Business", "First"],
+            width=150, height=30,
+        ).pack(side="left")
+
+        _lbl(r0, "Powered by Google Flights / Amadeus",
              size=11, color=SUBTEXT).pack(side="right")
 
-        fields = ctk.CTkFrame(add, fg_color="transparent")
-        fields.pack(fill="x", padx=18, pady=(0, 16))
+        # Row 1 — airports
+        r1 = ctk.CTkFrame(search_card, fg_color="transparent")
+        r1.pack(fill="x", padx=18, pady=6)
 
-        _lbl(fields, "From", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_from = AirportEntry(fields, placeholder="e.g. MNL", width=160)
-        self._price_from.pack(side="left", padx=(0, 16))
+        _lbl(r1, "From", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_from = AirportEntry(r1, placeholder="City or airport code", width=210)
+        self._price_from.pack(side="left", padx=(0, 8))
 
-        _lbl(fields, "To", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_to = AirportEntry(fields, placeholder="e.g. HNL", width=160)
-        self._price_to.pack(side="left", padx=(0, 16))
+        # Swap button
+        ctk.CTkButton(
+            r1, text="⇄", width=34, height=34,
+            fg_color="transparent", border_width=1, border_color=BORDER,
+            hover_color=BORDER, font=ctk.CTkFont(size=16),
+            command=self._swap_airports,
+        ).pack(side="left", padx=4)
 
-        _lbl(fields, "Depart", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_dep = DatePicker(fields, placeholder="Pick date", width=148)
+        _lbl(r1, "To", size=11, color=SUBTEXT).pack(side="left", padx=(4, 4))
+        self._price_to = AirportEntry(r1, placeholder="City or airport code", width=210)
+        self._price_to.pack(side="left")
+
+        # Row 2 — dates + search button
+        r2 = ctk.CTkFrame(search_card, fg_color="transparent")
+        r2.pack(fill="x", padx=18, pady=(6, 16))
+
+        _lbl(r2, "Depart", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
+        self._price_dep = DatePicker(r2, placeholder="Pick departure date", width=170)
         self._price_dep.pack(side="left", padx=(0, 16))
 
-        _lbl(fields, "Return", size=11, color=SUBTEXT).pack(side="left", padx=(0, 4))
-        self._price_ret = DatePicker(fields, placeholder="Optional", width=148)
-        self._price_ret.pack(side="left", padx=(0, 16))
+        self._return_lbl = _lbl(r2, "Return", size=11, color=SUBTEXT)
+        self._return_lbl.pack(side="left", padx=(0, 4))
+        self._price_ret = DatePicker(r2, placeholder="Pick return date", width=170)
+        self._price_ret.pack(side="left", padx=(0, 20))
 
         ctk.CTkButton(
-            fields, text="Watch & Check", width=130, height=36,
+            r2, text="🔍  Search", width=130, height=36,
             fg_color=PURPLE, hover_color=VIOLET,
-            command=self._add_watched_route,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._search_prices,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            fields, text="Refresh All", width=100, height=36,
+            r2, text="Watch Route", width=110, height=36,
             fg_color="transparent", border_width=1, border_color=BORDER,
-            hover_color=CARD_ALT, command=self._manual_price_check,
+            hover_color=CARD_ALT,
+            command=self._add_watched_route,
         ).pack(side="left")
 
-        # ── Results ───────────────────────────────────────────────────────────
+        self._search_status = _lbl(r2, "", size=11, color=SUBTEXT)
+        self._search_status.pack(side="left", padx=12)
+
+        # ── Sort bar ─────────────────────────────────────────────────────────
+        self._sort_bar = ctk.CTkFrame(parent, fg_color="transparent")
+        self._sort_bar.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self._sort_bar.grid_columnconfigure(3, weight=1)
+        _lbl(self._sort_bar, "Sort:", size=11, color=SUBTEXT).grid(
+            row=0, column=0, padx=(2, 8))
+        self._sort_var = tk.StringVar(value="cheapest")
+        for i, (val, label) in enumerate([
+            ("cheapest", "Cheapest"), ("fastest", "Fastest"), ("best", "Best")
+        ], 1):
+            ctk.CTkButton(
+                self._sort_bar, text=label, width=90, height=28,
+                fg_color=PURPLE if val == "cheapest" else "transparent",
+                hover_color=BORDER, border_width=1, border_color=BORDER,
+                command=lambda v=val: self._sort_results(v),
+            ).grid(row=0, column=i, padx=3)
+        self._sort_bar.grid_remove()   # hidden until results arrive
+
+        # ── Results scroll ────────────────────────────────────────────────────
         self._prices_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        self._prices_scroll.grid(row=1, column=0, sticky="nsew")
+        self._prices_scroll.grid(row=2, column=0, sticky="nsew")
         self._prices_scroll.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(1, weight=0)
 
         self._prices_empty = _lbl(
             self._prices_scroll,
-            "No routes tracked yet.\n\n"
-            "1.  Go to  ⚙  Settings  and add your free Amadeus API keys\n"
-            "    (Sign up at  developers.amadeus.com  — takes 2 minutes)\n\n"
-            "2.  Pick a route above and click  Watch & Check",
+            "Search for a flight above to see prices.\n\n"
+            "  •  Add free Amadeus API keys in  ⚙  Settings to activate\n"
+            "  •  Sign up at  developers.amadeus.com  (takes 2 minutes)\n\n"
+            "Example:  HNL → MNL  ·  Nov 14  →  Nov 30  ·  Round trip  ·  PAL",
             size=13, color=SUBTEXT, justify="center",
         )
         self._prices_empty.grid(row=0, column=0, pady=80)
 
+        self._current_offers: list = []
+
     # ── Price result card ─────────────────────────────────────────────────────
 
-    def _render_price_results(self, offers: List[dict]) -> None:
+    def _render_price_results(
+        self, offers: List[dict], section_label: str = ""
+    ) -> None:
         self._prices_empty.grid_remove()
         for w in self._prices_scroll.winfo_children():
             if w != self._prices_empty:
@@ -279,14 +347,16 @@ class FlightTrackerApp:
             self._prices_empty.grid()
             return
 
-        # Group by route + date
-        routes: dict = {}
-        for o in offers:
-            k = f"{o['departure_airport']}  →  {o['arrival_airport']}  ·  {o.get('departure_time','')[:10]}"
-            routes.setdefault(k, []).append(o)
-
-        for i, (label, group) in enumerate(routes.items()):
-            self._add_price_card(label, group, i)
+        if section_label:
+            self._add_price_card(section_label, offers, 0)
+        else:
+            routes: dict = {}
+            for o in offers:
+                k = (f"{o['departure_airport']}  →  {o['arrival_airport']}"
+                     f"  ·  {o.get('departure_time','')[:10]}")
+                routes.setdefault(k, []).append(o)
+            for i, (label, group) in enumerate(routes.items()):
+                self._add_price_card(label, group, i)
 
     def _add_price_card(self, label: str, offers: list, row: int) -> None:
         card = _card(self._prices_scroll)
@@ -584,7 +654,12 @@ class FlightTrackerApp:
 
     def _on_prices(self, offers: List[dict]) -> None:
         if self._root:
-            self._root.after(0, lambda: self._render_price_results(offers))
+            self._root.after(0, lambda: self._apply_background_prices(offers))
+
+    def _apply_background_prices(self, offers: List[dict]) -> None:
+        self._current_offers = offers
+        self._sort_bar.grid()
+        self._render_price_results(offers)
 
     def _on_price_drop(self, info: dict) -> None:
         if self._root:
@@ -733,25 +808,117 @@ class FlightTrackerApp:
 
     # ── User actions ──────────────────────────────────────────────────────────
 
+    def _on_trip_type_change(self, value: str) -> None:
+        is_round = value == "Round trip"
+        if is_round:
+            self._return_lbl.pack(side="left", padx=(0, 4))
+            self._price_ret.pack(side="left", padx=(0, 20))
+        else:
+            self._return_lbl.pack_forget()
+            self._price_ret.pack_forget()
+
+    def _swap_airports(self) -> None:
+        a = self._price_from.get()
+        b = self._price_to.get()
+        self._price_from.set(b)
+        self._price_to.set(a)
+
+    def _sort_results(self, sort_key: str) -> None:
+        self._sort_var.set(sort_key)
+        # Update sort button colours
+        for widget in self._sort_bar.winfo_children():
+            if isinstance(widget, ctk.CTkButton):
+                lbl = widget.cget("text")
+                active = lbl.lower() == sort_key
+                widget.configure(fg_color=PURPLE if active else "transparent")
+        if sort_key == "cheapest":
+            self._current_offers.sort(key=lambda o: o.get("price_php", 0))
+        elif sort_key == "fastest":
+            self._current_offers.sort(key=lambda o: o.get("duration", "ZZ"))
+        else:  # best = balance of price + stops
+            self._current_offers.sort(
+                key=lambda o: o.get("price_php", 0) + o.get("stops", 0) * 500)
+        self._render_price_results(self._current_offers)
+
+    def _search_prices(self) -> None:
+        frm = self._price_from.get()
+        to  = self._price_to.get()
+        dep = self._price_dep.get()
+        ret = self._price_ret.get() if self._trip_var.get() == "Round trip" else ""
+
+        if not frm or not to:
+            messagebox.showwarning("Missing fields",
+                                   "Fill in both From and To airports.", parent=self._root)
+            return
+        if not dep:
+            messagebox.showwarning("No date",
+                                   "Pick a departure date using the 📅 button.", parent=self._root)
+            return
+        if self._trip_var.get() == "Round trip" and not ret:
+            messagebox.showwarning("No return date",
+                                   "Pick a return date, or switch to One-way.", parent=self._root)
+            return
+
+        if not (self._price_tracker and self._price_tracker._client.is_configured):
+            messagebox.showinfo(
+                "Amadeus not configured",
+                "Add your free Amadeus API keys in  ⚙  Settings\n"
+                "(developers.amadeus.com — free sign-up).", parent=self._root)
+            return
+
+        self._search_status.configure(text="Searching…", text_color=LAVENDER)
+        cabin = self._cabin_var.get().upper().replace(" ", "_")
+        pax   = int(self._pax_var.get())
+
+        def _run():
+            try:
+                offers = self._price_tracker._client.search_flights(
+                    frm, to, dep,
+                    return_date=ret,
+                    adults=pax,
+                    cabin_class=cabin,
+                    max_results=15,
+                )
+                self._root.after(0, lambda: self._on_search_done(offers, frm, to, dep, ret))
+            except Exception as exc:
+                msg = str(exc)
+                self._root.after(0, lambda m=msg: self._on_search_error(m))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_search_done(self, offers: list, frm: str, to: str, dep: str, ret: str) -> None:
+        self._current_offers = offers
+        n = len(offers)
+        trip = "Round trip" if ret else "One-way"
+        label = f"{frm} → {to}  ·  {dep}" + (f" → {ret}" if ret else "") + f"  ·  {trip}"
+        self._search_status.configure(
+            text=f"{n} result{'s' if n != 1 else ''} found", text_color=GREEN)
+        self._sort_bar.grid()
+        self._render_price_results(offers, section_label=label)
+
+    def _on_search_error(self, msg: str) -> None:
+        self._search_status.configure(text=f"Error: {msg}", text_color=RED)
+
     def _add_watched_route(self) -> None:
         frm = self._price_from.get()
         to  = self._price_to.get()
         dep = self._price_dep.get()
-        ret = self._price_ret.get()
+        ret = self._price_ret.get() if self._trip_var.get() == "Round trip" else ""
+        cabin = self._cabin_var.get().upper().replace(" ", "_")
+        pax   = int(self._pax_var.get())
 
         if not frm or not to:
-            messagebox.showwarning(
-                "Missing fields", "Please fill in both From and To airports.",
-                parent=self._root)
+            messagebox.showwarning("Missing fields",
+                                   "Fill in both From and To airports.", parent=self._root)
             return
         if not dep:
-            messagebox.showwarning(
-                "No departure date", "Please pick a departure date using the 📅 button.",
-                parent=self._root)
+            messagebox.showwarning("No date",
+                                   "Pick a departure date using the 📅 button.", parent=self._root)
             return
 
         routes = list(self.settings.get("watched_price_routes", []))
-        entry  = {"from": frm, "to": to, "date": dep}
+        entry: dict = {"from": frm, "to": to, "date": dep,
+                       "cabin_class": cabin, "adults": pax}
         if ret:
             entry["return_date"] = ret
         if entry not in routes:
@@ -761,11 +928,12 @@ class FlightTrackerApp:
 
         if self._price_tracker and self._price_tracker._client.is_configured:
             self._price_tracker.check_now()
+            messagebox.showinfo("Route saved!",
+                                "Route saved and price check started.", parent=self._root)
         else:
             messagebox.showinfo(
                 "Route saved!",
-                "Your route has been saved.\n\n"
-                "To see live prices, add your free Amadeus API keys in  ⚙  Settings.",
+                "Route saved.\n\nAdd Amadeus API keys in  ⚙  Settings to see live prices.",
                 parent=self._root,
             )
 
